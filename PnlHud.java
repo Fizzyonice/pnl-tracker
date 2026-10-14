@@ -84,6 +84,25 @@ public class PnlHud {
         return m;
     }
 
+    // ---------- fade ----------
+    private static float ALPHA = 1f;
+
+    private static int fade(int col) {
+        if (ALPHA >= 0.999f) return col;
+        int a = Math.round(((col >>> 24) & 255) * ALPHA);
+        return (a << 24) | (col & 0xFFFFFF);
+    }
+
+    private static void fillA(GuiGraphicsExtractor g, int x1, int y1, int x2, int y2, int col) {
+        if (ALPHA < 0.02f) return;
+        g.fill(x1, y1, x2, y2, fade(col));
+    }
+
+    private static void textA(GuiGraphicsExtractor g, Font f, Component c, int x, int y, int col, boolean shadow) {
+        if (ALPHA < 0.06f) return; // very low alpha text can render solid, so skip it
+        g.text(f, c, x, y, fade(col), shadow && ALPHA > 0.6f);
+    }
+
     // ---------- render ----------
     static final int BET_ROWS = 12, BET_ROW_H = 14, FOOT = 12;
     static final int LOST_BG = 0x5534C66E, WON_BG = 0x55E8435E, PAID_BG = 0x40A0A8C0;
@@ -127,13 +146,22 @@ public class PnlHud {
         int boxH = 6 + 10 + listRows * 11 + 3;
         int profitH = 12 + 22 + 13 + chartH + 7 + boxH + (recentRows > 0 ? 7 + recentRows * 12 : 0);
         int betsH = 14 + Math.max(1, Math.min(BET_ROWS, bets.size())) * BET_ROW_H;
+        List<Map.Entry<String, Double>> pnets = playerNets(nets);
+        int netsH = 22 + Math.max(1, pnets.size()) * NET_ROW_H;
         boolean rotating = d.rotateSeconds > 0;
-        int bodyH = rotating ? Math.max(profitH, betsH) : profitH;
+        int bodyH = rotating ? Math.max(profitH, Math.max(betsH, netsH)) : profitH;
         int h = P + bodyH + (rotating ? FOOT : 0) + P - 2;
 
         long now = System.currentTimeMillis();
         long period = Math.max(1, d.rotateSeconds) * 1000L;
-        int page = rotating ? (int) ((now / period) % 2) : 0;
+        int page = rotating ? (int) ((now / period) % PAGES) : 0;
+        long tIn = now % period;
+        float fadeA = 1f;
+        if (rotating) {
+            if (tIn < FADE_MS) fadeA = tIn / (float) FADE_MS;
+            else if (period - tIn < FADE_MS) fadeA = (period - tIn) / (float) FADE_MS;
+            fadeA = fadeA * fadeA * (3 - 2 * fadeA); // smooth ease
+        }
 
         g.pose().pushMatrix();
         g.pose().scale(s, s);
@@ -143,8 +171,11 @@ public class PnlHud {
         panel(g, x, y, W, h, PANEL);
         outline(g, x, y, W, h, OUTLINE);
 
+        ALPHA = fadeA;
         if (page == 0) drawProfit(g, f, d, x, y + P, win, pwin, in, out, profit, winners, losers, listRows, recentRows, chartH, boxH);
-        else drawBets(g, f, d, x, y + P, bets);
+        else if (page == 1) drawBets(g, f, d, x, y + P, bets);
+        else drawNets(g, f, d, x, y + P, pnets);
+        ALPHA = 1f;
 
         if (rotating) footer(g, x, y + h - P - 4, page, (now % period) / (float) period);
 
@@ -228,8 +259,8 @@ public class PnlHud {
             panel(g, rx, cy, rw, rh, CARD);
 
             String label = b.kind == 0 ? "LOST" : b.kind == 1 ? "WON" : b.kind == 3 ? "RAKE" : "PAID";
-            int badgeC = b.kind == 0 ? GREEN : b.kind == 3 ? PINK : RED;
-            int badgeBg = b.kind == 0 ? LOST_BG : b.kind == 1 ? WON_BG : b.kind == 3 ? 0x50F29BCB : PAID_BG;
+            int badgeC = b.kind == 0 ? RED : b.kind == 3 ? PINK : GREEN;
+            int badgeBg = b.kind == 0 ? WON_BG : b.kind == 1 ? LOST_BG : b.kind == 3 ? 0x50F29BCB : PAID_BG;
             float bsz = 0.55f;
             int bw = 22;
             pill(g, rx + 3, cy + 2, bw, rh - 4, badgeBg);
@@ -245,7 +276,7 @@ public class PnlHud {
             float as = 0.82f;
             int aw = w(f, amt, true, as);
             int ax = rx + rw - 4 - 16 - aw;
-            txt(g, f, amt, ax, cy + 2, b.kind == 0 ? GREEN : b.kind == 3 ? PINK : RED, as, true, false);
+            txt(g, f, amt, ax, cy + 2, b.kind == 0 ? RED : b.kind == 3 ? PINK : GREEN, as, true, false);
 
             int nx = rx + 3 + bw + 5;
             txt(g, f, trim(f, b.p, true, 0.82f, ax - nx - 4), nx, cy + 2, WHITE, 0.82f, true, false);
@@ -294,11 +325,11 @@ public class PnlHud {
             float frac = (float) Math.min(1.0, v / PnlData.RB_LIMIT);
             g.pose().pushMatrix();
             g.pose().scale(0.5f, 0.5f);
-            g.fill(bx * 2, by * 2, (bx + bw) * 2, by * 2 + 3, 0x26FFFFFF);
+            fillA(g, bx * 2, by * 2, (bx + bw) * 2, by * 2 + 3, 0x26FFFFFF);
             int fillEnd = Math.round(bw * 2 * frac);
             for (int i = 0; i < fillEnd; i += 2) {
                 float t = i / (float) (bw * 2);
-                g.fill(bx * 2 + i, by * 2, bx * 2 + Math.min(i + 2, fillEnd), by * 2 + 3, lerp(PINK, GREEN, t));
+                fillA(g, bx * 2 + i, by * 2, bx * 2 + Math.min(i + 2, fillEnd), by * 2 + 3, lerp(PINK, GREEN, t));
             }
             g.pose().popMatrix();
             cy += RB_ROW;
@@ -320,17 +351,52 @@ public class PnlHud {
         }
     }
 
+    static final int PAGES = 3, FADE_MS = 350, NET_ROW_H = 13, NET_ROWS = 12;
+
+    /** Player's side: + = they're up on you (green), - = they're down (red). Biggest up at top. */
+    private static List<Map.Entry<String, Double>> playerNets(Map<String, Double> nets) {
+        List<Map.Entry<String, Double>> list = new ArrayList<>();
+        for (Map.Entry<String, Double> e : nets.entrySet())
+            if (Math.abs(e.getValue()) >= 1) list.add(new AbstractMap.SimpleEntry<>(e.getKey(), -e.getValue()));
+        list.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+        if (list.size() <= NET_ROWS) return list;
+        List<Map.Entry<String, Double>> cut = new ArrayList<>(list.subList(0, NET_ROWS / 2));
+        cut.addAll(list.subList(list.size() - NET_ROWS / 2, list.size()));
+        return cut;
+    }
+
+    /** PLAYER NETS page. */
+    private static void drawNets(GuiGraphicsExtractor g, Font f, PnlData d, int x, int cy, List<Map.Entry<String, Double>> rows) {
+        header(g, f, d, x, cy, "PLAYER NETS");
+        cy += 11;
+        txt(g, f, "+ means the player is up, - means they're down", x + P, cy, LABEL, 0.62f, false, false);
+        cy += 11;
+        if (rows.isEmpty()) {
+            txt(g, f, "No payments yet", x + P, cy + 2, LABEL, 0.85f, false, false);
+            return;
+        }
+        for (Map.Entry<String, Double> e : rows) {
+            double v = e.getValue();
+            String amt = PnlData.signed(v);
+            float sc = 0.85f;
+            int aw = w(f, amt, true, sc);
+            txt(g, f, trim(f, e.getKey(), true, sc, W - 2 * P - aw - 10), x + P + 2, cy, WHITE, sc, true, false);
+            txt(g, f, amt, x + W - P - aw, cy, v >= 0 ? GREEN : RED, sc, true, false);
+            cy += NET_ROW_H;
+        }
+    }
+
     /** Page dots + a bar that fills up until the next page switch. */
     private static void footer(GuiGraphicsExtractor g, int x, int y, int page, float progress) {
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < PAGES; i++) {
             int dx = x + P + i * 6;
-            g.fill(dx, y, dx + 3, y + 3, i == page ? PINK : 0x60FFFFFF);
+            fillA(g, dx, y, dx + 3, y + 3, i == page ? PINK : 0x60FFFFFF);
         }
-        int bx = x + P + 16, bw = W - 2 * P - 16;
+        int bx = x + P + 22, bw = W - 2 * P - 22;
         g.pose().pushMatrix();
         g.pose().scale(0.5f, 0.5f);
-        g.fill(bx * 2, y * 2 + 2, (bx + bw) * 2, y * 2 + 4, 0x30FFFFFF);
-        g.fill(bx * 2, y * 2 + 2, bx * 2 + Math.round(bw * 2 * progress), y * 2 + 4, PINK);
+        fillA(g, bx * 2, y * 2 + 2, (bx + bw) * 2, y * 2 + 4, 0x30FFFFFF);
+        fillA(g, bx * 2, y * 2 + 2, bx * 2 + Math.round(bw * 2 * progress), y * 2 + 4, PINK);
         g.pose().popMatrix();
     }
 
@@ -349,56 +415,70 @@ public class PnlHud {
         spaced(g, f, "BALANCE", tx, y + ch - 10, LABEL, 0.6f);
     }
 
-    /** Running 24h profit, drawn at double resolution for a thin, smooth line. */
+    /** Profit after every payment, so each payment is a visible jump. Green above zero, red below. */
     private static void chart(GuiGraphicsExtractor g, Font f, List<PnlData.Tx> win, int cx, int cy, int cw, int ch, double profit) {
         panel(g, cx, cy, cw, ch, CHARTBG);
 
-        int n = cw * 2;
-        double[] vals = new double[n];
-        long now = System.currentTimeMillis(), start = now - PnlData.DAY;
-        double cum = 0, min = 0, max = 0;
-        int k = 0;
-        for (int i = 0; i < n; i++) {
-            long t = start + (long) ((i + 1) * (double) PnlData.DAY / n);
-            while (k < win.size() && win.get(k).t <= t) cum += win.get(k++).a;
-            vals[i] = cum;
+        // points: 0, then running profit after each payment (last 120 payments)
+        int from = Math.max(0, win.size() - 120);
+        double base = 0;
+        for (int i = 0; i < from; i++) base += win.get(i).a;
+        int n = win.size() - from + 1;
+        double[] pts = new double[Math.max(n, 2)];
+        pts[0] = base;
+        double cum = base, min = Math.min(0, base), max = Math.max(0, base);
+        for (int i = from; i < win.size(); i++) {
+            cum += win.get(i).a;
+            pts[i - from + 1] = cum;
             min = Math.min(min, cum);
             max = Math.max(max, cum);
         }
-        if (max - min < 1) max = min + 1;
+        if (n < 2) pts[1] = pts[0];
+        if (max - min < 1) { max += 1; min -= 1; }
+        double pad = (max - min) * 0.08;
+        max += pad; min -= pad;
 
-        int top = (cy + 11) * 2, bot = (cy + ch - 11) * 2;
-        int lineC = profit >= 0 ? GREEN : RED, fillC = profit >= 0 ? GREEN_F : RED_F;
+        final int R = 2; // draw at 2x resolution
+        int L = cx * R + 4, Rt = (cx + cw) * R - 10;
+        int top = (cy + 10) * R, bot = (cy + ch - 10) * R;
+        int zeroY = yOf(0, min, max, top, bot);
+        int segs = pts.length - 1;
 
         g.pose().pushMatrix();
-        g.pose().scale(0.5f, 0.5f);
-        int zeroY = yOf(0, min, max, top, bot);
-        for (int gx = cx * 2 + 2; gx < (cx + cw) * 2 - 2; gx += 6) g.fill(gx, zeroY, gx + 3, zeroY + 1, GRID); // dashed zero line
-        int prevY = yOf(vals[0], min, max, top, bot);
-        for (int i = 0; i < n; i++) {
-            int yy = yOf(vals[i], min, max, top, bot);
-            int px = cx * 2 + i;
-            g.fill(px, Math.min(yy, zeroY), px + 1, Math.max(yy, zeroY), fillC);
-            g.fill(px, Math.min(prevY, yy), px + 1, Math.max(prevY, yy) + 2, lineC);
+        g.pose().scale(1f / R, 1f / R);
+        for (int gx = L; gx < Rt; gx += 6) fillA(g, gx, zeroY, gx + 3, zeroY + 1, GRID); // dashed zero line
+
+        int prevY = yOf(pts[0], min, max, top, bot);
+        int lastY = prevY;
+        for (int px = L; px <= Rt; px++) {
+            double pos = (px - L) / (double) Math.max(1, Rt - L) * segs;
+            int i = Math.min(segs - 1, (int) pos);
+            double t = pos - i;
+            double v = pts[i] + (pts[i + 1] - pts[i]) * t;
+            int yy = yOf(v, min, max, top, bot);
+            boolean up = v >= 0;
+            fillA(g, px, Math.min(yy, zeroY), px + 1, Math.max(yy, zeroY), up ? GREEN_F : RED_F);
+            fillA(g, px, Math.min(prevY, yy), px + 1, Math.max(prevY, yy) + 3, up ? GREEN : RED);
             prevY = yy;
+            lastY = yy;
         }
-        int ex = (cx + cw) * 2 - 1;
-        g.fill(ex - 3, prevY - 2, ex + 2, prevY + 3, lineC); // end dot
+        int endC = profit >= 0 ? GREEN : RED;
+        fillA(g, Rt - 3, lastY - 2, Rt + 4, lastY + 5, endC); // end dot
         g.pose().popMatrix();
 
-        txt(g, f, PnlData.signed(max), cx + 4, cy + 3, LABEL, 0.62f, false, false);
-        txt(g, f, PnlData.signed(min), cx + 4, cy + ch - 8, LABEL, 0.62f, false, false);
+        txt(g, f, PnlData.signed(max - pad), cx + 4, cy + 3, LABEL, 0.62f, false, false);
+        txt(g, f, PnlData.signed(min + pad), cx + 4, cy + ch - 8, LABEL, 0.62f, false, false);
 
         String v = PnlData.signed(profit);
         float ps = 0.72f;
         int tw = w(f, v, true, ps), pw = tw + 8, ph = 10;
-        int px = cx + cw - pw - 5;
-        int py = Math.max(cy + 2, Math.min(cy + ch - ph - 10, prevY / 2 - ph / 2));
-        panel(g, px, py, pw, ph, lineC);
-        txt(g, f, v, px + 4, py + 2, DARK, ps, true, false);
+        int pxl = cx + cw - pw - 8;
+        int py = Math.max(cy + 2, Math.min(cy + ch - ph - 10, lastY / R - ph - 3));
+        pill(g, pxl, py, pw, ph, endC);
+        txt(g, f, v, pxl + 4, py + 2, DARK, ps, true, false);
 
         int lw = w(f, "LIVE", true, 0.6f);
-        g.fill(cx + cw - lw - 9, cy + ch - 7, cx + cw - lw - 6, cy + ch - 4, RED);
+        fillA(g, cx + cw - lw - 9, cy + ch - 7, cx + cw - lw - 6, cy + ch - 4, RED);
         txt(g, f, "LIVE", cx + cw - lw - 4, cy + ch - 8, LABEL, 0.6f, true, false);
     }
 
@@ -415,13 +495,13 @@ public class PnlHud {
 
     // ---------- drawing helpers ----------
     private static void panel(GuiGraphicsExtractor g, int x, int y, int w, int h, int col) {
-        g.fill(x + 3, y, x + w - 3, y + h, col);
-        g.fill(x, y + 3, x + 3, y + h - 3, col);
-        g.fill(x + w - 3, y + 3, x + w, y + h - 3, col);
-        g.fill(x + 1, y + 1, x + 3, y + 3, col);
-        g.fill(x + w - 3, y + 1, x + w - 1, y + 3, col);
-        g.fill(x + 1, y + h - 3, x + 3, y + h - 1, col);
-        g.fill(x + w - 3, y + h - 3, x + w - 1, y + h - 1, col);
+        fillA(g, x + 3, y, x + w - 3, y + h, col);
+        fillA(g, x, y + 3, x + 3, y + h - 3, col);
+        fillA(g, x + w - 3, y + 3, x + w, y + h - 3, col);
+        fillA(g, x + 1, y + 1, x + 3, y + 3, col);
+        fillA(g, x + w - 3, y + 1, x + w - 1, y + 3, col);
+        fillA(g, x + 1, y + h - 3, x + 3, y + h - 1, col);
+        fillA(g, x + w - 3, y + h - 3, x + w - 1, y + h - 1, col);
     }
 
     /** Smooth capsule ("sideways oval"), drawn at quarter-pixel resolution so the ends look round. */
@@ -434,7 +514,7 @@ public class PnlHud {
         for (int row = 0; row < H; row++) {
             float dy = r - (row + 0.5f);
             int inset = (int) Math.ceil(r - Math.sqrt(Math.max(0f, r * r - dy * dy)));
-            g.fill(X + inset, Y + row, X + Wd - inset, Y + row + 1, col);
+            fillA(g, X + inset, Y + row, X + Wd - inset, Y + row + 1, col);
         }
         g.pose().popMatrix();
     }
@@ -444,17 +524,17 @@ public class PnlHud {
         g.pose().pushMatrix();
         g.pose().scale(0.5f, 0.5f);
         int X = x * 2, Y = y * 2, Wd = w * 2, H = h * 2;
-        g.fill(X + 6, Y, X + Wd - 6, Y + 1, col);
-        g.fill(X + 6, Y + H - 1, X + Wd - 6, Y + H, col);
-        g.fill(X, Y + 6, X + 1, Y + H - 6, col);
-        g.fill(X + Wd - 1, Y + 6, X + Wd, Y + H - 6, col);
+        fillA(g, X + 6, Y, X + Wd - 6, Y + 1, col);
+        fillA(g, X + 6, Y + H - 1, X + Wd - 6, Y + H, col);
+        fillA(g, X, Y + 6, X + 1, Y + H - 6, col);
+        fillA(g, X + Wd - 1, Y + 6, X + Wd, Y + H - 6, col);
         int[][] corner = {{1,4},{2,2},{4,1}}; // simple rounded corner steps
         for (int[] cpt : corner) {
             int a = cpt[0], b = cpt[1];
-            g.fill(X + a, Y + b, X + a + 2, Y + b + 2, col);
-            g.fill(X + Wd - a - 2, Y + b, X + Wd - a, Y + b + 2, col);
-            g.fill(X + a, Y + H - b - 2, X + a + 2, Y + H - b, col);
-            g.fill(X + Wd - a - 2, Y + H - b - 2, X + Wd - a, Y + H - b, col);
+            fillA(g, X + a, Y + b, X + a + 2, Y + b + 2, col);
+            fillA(g, X + Wd - a - 2, Y + b, X + Wd - a, Y + b + 2, col);
+            fillA(g, X + a, Y + H - b - 2, X + a + 2, Y + H - b, col);
+            fillA(g, X + Wd - a - 2, Y + H - b - 2, X + Wd - a, Y + H - b, col);
         }
         g.pose().popMatrix();
     }
@@ -471,7 +551,7 @@ public class PnlHud {
         g.pose().pushMatrix();
         g.pose().translate(x, y);
         g.pose().scale(scale, scale);
-        g.text(f, comp, 0, 0, color, shadow);
+        textA(g, f, comp, 0, 0, color, shadow);
         g.pose().popMatrix();
     }
 
@@ -483,7 +563,7 @@ public class PnlHud {
         int cx = 0;
         for (int i = 0; i < s.length(); i++) {
             Component ch = c(String.valueOf(s.charAt(i)), true);
-            g.text(f, ch, cx, 0, color, false);
+            textA(g, f, ch, cx, 0, color, false);
             cx += f.width(ch) + 1;
         }
         g.pose().popMatrix();
