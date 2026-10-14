@@ -17,6 +17,10 @@ public class PnlTracker implements ClientModInitializer {
     public static final Logger LOG = LoggerFactory.getLogger("pnltracker");
     public static PnlData DATA;
 
+    private static void say(com.mojang.brigadier.context.CommandContext<net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource> ctx, String msg) {
+        ctx.getSource().sendFeedback(Component.literal(msg).withStyle(ChatFormatting.LIGHT_PURPLE));
+    }
+
     @Override
     public void onInitializeClient() {
         DATA = PnlData.load();
@@ -32,33 +36,27 @@ public class PnlTracker implements ClientModInitializer {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, access) ->
             dispatcher.register(ClientCommands.literal("pnl")
                 .executes(ctx -> {
-                    double net = DATA.net();
-                    ctx.getSource().sendFeedback(Component.literal("PnL: ")
+                    double net = 0;
+                    for (PnlData.Tx tx : DATA.window()) net += tx.a;
+                    ctx.getSource().sendFeedback(Component.literal("24h PnL: ")
                         .append(Component.literal(PnlData.signed(net))
                             .withStyle(net >= 0 ? ChatFormatting.GREEN : ChatFormatting.RED))
-                        .append(Component.literal("  (/pnl reset, /pnl toggle, /pnl size 0.5-2)").withStyle(ChatFormatting.GRAY)));
+                        .append(Component.literal("  (/pnl reset, toggle, size 0.5-2, side left|right)").withStyle(ChatFormatting.GRAY)));
                     return 1;
                 })
-                .then(ClientCommands.literal("reset").executes(ctx -> {
-                    DATA.reset();
-                    ctx.getSource().sendFeedback(Component.literal("PnL tracker reset.").withStyle(ChatFormatting.LIGHT_PURPLE));
-                    return 1;
-                }))
+                .then(ClientCommands.literal("reset").executes(ctx -> { DATA.reset(); say(ctx, "PnL tracker reset."); return 1; }))
                 .then(ClientCommands.literal("toggle").executes(ctx -> {
-                    DATA.hudVisible = !DATA.hudVisible;
-                    DATA.save();
-                    ctx.getSource().sendFeedback(Component.literal("PnL HUD " + (DATA.hudVisible ? "shown" : "hidden"))
-                        .withStyle(ChatFormatting.LIGHT_PURPLE));
-                    return 1;
+                    DATA.hudVisible = !DATA.hudVisible; DATA.save();
+                    say(ctx, "PnL HUD " + (DATA.hudVisible ? "shown" : "hidden")); return 1;
                 }))
                 .then(ClientCommands.literal("size")
                     .then(ClientCommands.argument("scale", FloatArgumentType.floatArg(0.5f, 2.0f)).executes(ctx -> {
-                        DATA.hudScale = FloatArgumentType.getFloat(ctx, "scale");
-                        DATA.save();
-                        ctx.getSource().sendFeedback(Component.literal("PnL HUD size set to " + DATA.hudScale)
-                            .withStyle(ChatFormatting.LIGHT_PURPLE));
-                        return 1;
+                        DATA.hudScale = FloatArgumentType.getFloat(ctx, "scale"); DATA.save();
+                        say(ctx, "PnL HUD size set to " + DATA.hudScale); return 1;
                     })))
+                .then(ClientCommands.literal("side")
+                    .then(ClientCommands.literal("left").executes(ctx -> { DATA.rightSide = false; DATA.save(); say(ctx, "PnL HUD moved left."); return 1; }))
+                    .then(ClientCommands.literal("right").executes(ctx -> { DATA.rightSide = true; DATA.save(); say(ctx, "PnL HUD moved right."); return 1; })))
             ));
     }
 }

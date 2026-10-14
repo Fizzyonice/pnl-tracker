@@ -10,16 +10,24 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Holds totals and parses DonutSMP payment messages. Saved to config/pnltracker.json. */
+/** Stores every payment (last 24h) and parses DonutSMP payment messages. Saved to config/pnltracker.json. */
 public class PnlData {
-    public double received = 0;
-    public double sent = 0;
-    public int payments = 0;
+    public static final long DAY = 24L * 60 * 60 * 1000;
+
+    /** One payment. a > 0 = they paid you, a < 0 = you paid them. */
+    public static class Tx {
+        public long t;
+        public String p;
+        public double a;
+        public Tx() {}
+        public Tx(long t, String p, double a) { this.t = t; this.p = p; this.a = a; }
+    }
+
+    public List<Tx> txs = new ArrayList<>();
     public double balance = -1;          // -1 = unknown until "You have $..." shows up
     public boolean hudVisible = true;
-    public float hudScale = 1.0f;          // set with /pnl size
-    public Map<String, Double> playerNets = new HashMap<>(); // + = they paid you more, - = you paid them more
-    public List<String> recent = new ArrayList<>();          // last few payments, newest first
+    public float hudScale = 1.0f;
+    public boolean rightSide = true;
 
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("pnltracker.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -30,46 +38,39 @@ public class PnlData {
     private static final Pattern SENT     = Pattern.compile("^You paid ([A-Za-z0-9_.]{2,17}) " + AMT, Pattern.CASE_INSENSITIVE);
     private static final Pattern BALANCE  = Pattern.compile("^You have " + AMT, Pattern.CASE_INSENSITIVE);
 
-    public double net() { return received - sent; }
-
     public boolean handle(String raw) {
         String msg = raw.trim();
         Matcher m;
-        if ((m = RECEIVED.matcher(msg)).find()) {
-            double amt = parseAmount(m.group(2));
-            received += amt;
-            if (balance >= 0) balance += amt;
-            record(m.group(1), amt);
-            return true;
-        }
-        if ((m = SENT.matcher(msg)).find()) {
-            double amt = parseAmount(m.group(2));
-            sent += amt;
-            if (balance >= 0) balance -= amt;
-            record(m.group(1), -amt);
-            return true;
-        }
-        if ((m = BALANCE.matcher(msg)).find()) {
-            balance = parseAmount(m.group(1));
-            save();
-            return true;
-        }
+        if ((m = RECEIVED.matcher(msg)).find()) { add(m.group(1), parseAmount(m.group(2))); return true; }
+        if ((m = SENT.matcher(msg)).find())     { add(m.group(1), -parseAmount(m.group(2))); return true; }
+        if ((m = BALANCE.matcher(msg)).find())  { balance = parseAmount(m.group(1)); save(); return true; }
         return false;
     }
 
-    private void record(String player, double signedAmt) {
-        payments++;
-        playerNets.merge(player, signedAmt, Double::sum);
-        recent.add(0, (signedAmt >= 0 ? "+" : "-") + format(Math.abs(signedAmt)) + (signedAmt >= 0 ? " from " : " to ") + player);
-        while (recent.size() > 5) recent.remove(recent.size() - 1);
+    private void add(String player, double signed) {
+        if (balance >= 0) balance += signed;
+        txs.add(new Tx(System.currentTimeMillis(), player, signed));
+        prune();
         save();
     }
 
-    public void reset() {
-        received = 0; sent = 0; payments = 0;
-        playerNets.clear(); recent.clear();
-        save();
+    /** Drop payments older than 24h. */
+    public void prune() {
+        long cutoff = System.currentTimeMillis() - DAY;
+        txs.removeIf(tx -> tx == null || tx.t < cutoff);
+        while (txs.size() > 20000) txs.remove(0);
     }
+
+    /** Payments in the last 24h, oldest first. */
+    public List<Tx> window() {
+        long cutoff = System.currentTimeMillis() - DAY;
+        List<Tx> out = new ArrayList<>();
+        for (Tx tx : txs) if (tx.t >= cutoff) out.add(tx);
+        out.sort(Comparator.comparingLong(tx -> tx.t));
+        return out;
+    }
+
+    public void reset() { txs.clear(); save(); }
 
     /** Handles "1,250,000", "1.5M", "392.97B", "2.1 K" etc. */
     public static double parseAmount(String s) {
@@ -100,18 +101,16 @@ public class PnlData {
         return "$" + out;
     }
 
-    public static String signed(double v) {
-        return (v >= 0 ? "+" : "-") + format(v);
-    }
+    public static String signed(double v) { return (v >= 0 ? "+" : "-") + format(v); }
 
     public static PnlData load() {
         try {
             if (Files.exists(FILE)) {
                 PnlData d = GSON.fromJson(Files.readString(FILE), PnlData.class);
                 if (d != null) {
-                    if (d.playerNets == null) d.playerNets = new HashMap<>();
-                    if (d.recent == null) d.recent = new ArrayList<>();
+                    if (d.txs == null) d.txs = new ArrayList<>();
                     if (d.hudScale <= 0) d.hudScale = 1.0f;
+                    d.prune();
                     return d;
                 }
             }
@@ -122,10 +121,7 @@ public class PnlData {
     }
 
     public void save() {
-        try {
-            Files.writeString(FILE, GSON.toJson(this));
-        } catch (Exception e) {
-            PnlTracker.LOG.warn("Couldn't save pnltracker.json", e);
-        }
+        try { Files.writeString(FILE, GSON.toJson(this)); }
+        catch (Exception e) { PnlTracker.LOG.warn("Couldn't save pnltracker.json", e); }
     }
 }
