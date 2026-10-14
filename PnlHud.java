@@ -183,13 +183,13 @@ public class PnlHud {
         int lx = x + P, rx = x + P + colW + 6;
         panel(g, lx, cy, colW, boxH, CARD);
         panel(g, rx, cy, colW, boxH, CARD);
-        spaced(g, f, "TOP WINNERS", lx + 5, cy + 5, WIN_H, 0.68f);
-        spaced(g, f, "TOP LOSERS", rx + 5, cy + 5, GREEN, 0.68f);
+        spaced(g, f, "TOP WINNERS", lx + 5, cy + 5, GREEN, 0.68f);
+        spaced(g, f, "TOP LOSERS", rx + 5, cy + 5, WIN_H, 0.68f);
         int ry = cy + 16;
         for (int i = 0; i < listRows; i++) {
-            if (i < winners.size()) row(g, f, lx + 5, ry, colW - 10, winners.get(i).getKey(), PnlData.format(-winners.get(i).getValue()), RED);
+            if (i < winners.size()) row(g, f, lx + 5, ry, colW - 10, winners.get(i).getKey(), PnlData.format(-winners.get(i).getValue()), GREEN);
             else if (i == 0) txt(g, f, "-", lx + 5, ry, LABEL, 0.8f, true, false);
-            if (i < losers.size()) row(g, f, rx + 5, ry, colW - 10, losers.get(i).getKey(), PnlData.format(losers.get(i).getValue()), GREEN);
+            if (i < losers.size()) row(g, f, rx + 5, ry, colW - 10, losers.get(i).getKey(), PnlData.format(losers.get(i).getValue()), RED);
             else if (i == 0) txt(g, f, "-", rx + 5, ry, LABEL, 0.8f, true, false);
             ry += 11;
         }
@@ -279,7 +279,7 @@ public class PnlHud {
             double v = e.getValue();
             boolean ready = v >= PnlData.RB_LIMIT;
 
-            String amt = ready ? "READY " + PnlData.shortFmt(PnlData.RB_LIMIT * PnlData.RB_PCT)
+            String amt = ready ? "OWE " + PnlData.shortFmt(PnlData.owed(v))
                                : PnlData.shortFmt(v) + " / " + PnlData.shortFmt(PnlData.RB_LIMIT);
             float ts = 0.8f;
             int aw = w(f, amt, true, ts);

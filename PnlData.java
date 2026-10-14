@@ -65,8 +65,8 @@ public class PnlData {
         double cur = rakeback.getOrDefault(player, 0.0);
         boolean claim = false;
         if (signed > 0) cur += signed;                                   // they lost a bet to you
-        else if (cur >= RB_LIMIT) { cur -= RB_LIMIT; claim = true; }     // you paid a READY player = their rakeback
-        else cur += signed;                                              // you paid them out, so they're less down
+        else if (cur >= RB_LIMIT && isRakebackAmount(-signed, cur)) { cur = 0; claim = true; } // you paid their rakeback
+        else cur += signed;                                              // you paid out a win, so they're less down
         if (cur <= 0) rakeback.remove(player); else rakeback.put(player, cur);
         Tx tx = new Tx(System.currentTimeMillis(), player, signed);
         tx.rb = claim;
@@ -99,21 +99,14 @@ public class PnlData {
         Bet(String p, double amt, long t, int kind) { this.p = p; this.amt = amt; this.t = t; this.kind = kind; }
     }
 
-    /** Turns payments into bets: incoming = a bet (LOST); paying that player back within 30 min = WON. Newest first. */
+    /** Every payment is its own row: they pay you = LOST, you pay them = WON, rakeback payout = RAKE. Newest first. */
     public static List<Bet> bets(List<Tx> win) {
         List<Bet> out = new ArrayList<>();
         for (Tx tx : win) {
-            if (tx.a >= 0) { out.add(new Bet(tx.p, tx.a, tx.t, 0)); continue; }
-            if (tx.rb) { out.add(new Bet(tx.p, -tx.a, tx.t, 3)); continue; }
-            Bet match = null;
-            for (int i = out.size() - 1; i >= 0; i--) {
-                Bet b = out.get(i);
-                if (b.kind == 0 && b.p.equalsIgnoreCase(tx.p) && tx.t - b.t <= 30L * 60 * 1000) { match = b; break; }
-            }
-            if (match != null) { match.kind = 1; match.amt = -tx.a; match.t = tx.t; }
-            else out.add(new Bet(tx.p, -tx.a, tx.t, 2));
+            if (tx.a >= 0) out.add(new Bet(tx.p, tx.a, tx.t, 0));
+            else out.add(new Bet(tx.p, -tx.a, tx.t, tx.rb ? 3 : 1));
         }
-        out.sort((a, b) -> Long.compare(b.t, a.t));
+        Collections.reverse(out); // newest first (keeps the right order for payments in the same second)
         return out;
     }
 
@@ -178,6 +171,15 @@ public class PnlData {
         PnlData fresh = new PnlData();
         fresh.rbSeeded = true;
         return fresh;
+    }
+
+    /** What you owe a player: 10% of everything they've lost, once they reach $1B. */
+    public static double owed(double lost) { return lost >= RB_LIMIT ? lost * RB_PCT : 0; }
+
+    /** A payment counts as a rakeback payout if it matches what you owe within 5%. */
+    static boolean isRakebackAmount(double paid, double lost) {
+        double o = owed(lost);
+        return o > 0 && Math.abs(paid - o) <= o * 0.05 + 1;
     }
 
     /** Top players by progress toward $1B, closest first. */
