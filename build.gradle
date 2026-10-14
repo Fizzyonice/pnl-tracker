@@ -31,6 +31,11 @@ sourceSets {
 processResources {
     inputs.property "version", project.version
     filesMatching("fabric.mod.json") { expand "version": project.version }
+    // smooth font (Poppins, SIL Open Font License) — files sit on the repo's main page too
+    from('.') {
+        include 'bold.json', 'medium.json', 'poppins-bold.ttf', 'poppins-medium.ttf'
+        into 'assets/pnltracker/font'
+    }
 }
 
 java {
