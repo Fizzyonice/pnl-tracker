@@ -132,27 +132,16 @@ public class PnlHud {
         g.pose().popMatrix();
     }
 
-    /** Bottom-right card: face, name, full live balance. */
+    /** Bottom-right card: name and full live balance. */
     private static void balanceCard(GuiGraphicsExtractor g, Font f, PnlData d, String name, int sw, int sh) {
-        int cw = 196, ch = 44, face = 32;
+        int cw = 196, ch = 44;
         int x = sw - cw - M, y = sh - ch - M;
         panel(g, x, y, cw, ch, PANEL);
 
-        int fx = x + 6, fy = y + (ch - face) / 2;
-        int[] px = PlayerFace.get(name);
-        if (px != null) {
-            int cell = face / 8;
-            for (int r = 0; r < 8; r++)
-                for (int c = 0; c < 8; c++)
-                    g.fill(fx + c * cell, fy + r * cell, fx + (c + 1) * cell, fy + (r + 1) * cell, px[r * 8 + c]);
-        } else {
-            g.fill(fx, fy, fx + face, fy + face, 0x60FFFFFF);
-        }
-
-        int tx = fx + face + 7, tw = x + cw - 6 - tx;
+        int tx = x + 10, tw = cw - 20;
         spaced(g, f, name.toUpperCase(), tx, y + 6, PINK, 0.72f);
         String bal = d.balance >= 0 ? "$" + String.format("%,.0f", d.balance) : "/bal to load";
-        float bs = 1.9f;
+        float bs = 2.0f;
         while (f.width(bal) * bs > tw && bs > 0.8f) bs -= 0.05f;
         text(g, f, bal, tx, y + 15, d.balance >= 0 ? GREEN : LABEL, bs, true);
         spaced(g, f, "BALANCE", tx, y + ch - 9, LABEL, 0.55f);

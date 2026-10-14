@@ -14,6 +14,20 @@ dependencies {
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 }
 
+// The mod's files live on the main page of the repo (no folders needed).
+sourceSets {
+    main {
+        java {
+            srcDirs = ['.']
+            include '*.java'
+        }
+        resources {
+            srcDirs = ['.']
+            include 'fabric.mod.json'
+        }
+    }
+}
+
 processResources {
     inputs.property "version", project.version
     filesMatching("fabric.mod.json") { expand "version": project.version }
