@@ -2,6 +2,7 @@ package com.fiizzyonice.pnltracker;
 
 import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
@@ -61,6 +62,18 @@ public class PnlTracker implements ClientModInitializer {
                         DATA.rotateSeconds = IntegerArgumentType.getInteger(ctx, "seconds"); DATA.save();
                         say(ctx, DATA.rotateSeconds == 0 ? "PnL HUD will stay on the profit page." : "PnL HUD switches pages every " + DATA.rotateSeconds + "s.");
                         return 1;
+                    })))
+                .then(ClientCommands.literal("rakeback")
+                    .then(ClientCommands.literal("reset")
+                        .then(ClientCommands.argument("player", StringArgumentType.word()).executes(ctx -> {
+                            String p = StringArgumentType.getString(ctx, "player");
+                            say(ctx, DATA.rakebackReset(p) ? "Rakeback reset for " + p + "." : p + " isn't on the rakeback list.");
+                            return 1;
+                        })))
+                    .then(ClientCommands.literal("clear").executes(ctx -> { DATA.rakeback.clear(); DATA.save(); say(ctx, "Rakeback cleared for everyone."); return 1; }))
+                    .then(ClientCommands.literal("toggle").executes(ctx -> {
+                        DATA.rbVisible = !DATA.rbVisible; DATA.save();
+                        say(ctx, "Rakeback panel " + (DATA.rbVisible ? "shown" : "hidden")); return 1;
                     })))
                 .then(ClientCommands.literal("side")
                     .then(ClientCommands.literal("left").executes(ctx -> { DATA.rightSide = false; DATA.save(); say(ctx, "PnL HUD moved left."); return 1; }))

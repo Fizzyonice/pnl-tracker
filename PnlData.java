@@ -19,6 +19,7 @@ public class PnlData {
         public long t;
         public String p;
         public double a;
+        public boolean rb;   // this payment was a rakeback payout
         public Tx() {}
         public Tx(long t, String p, double a) { this.t = t; this.p = p; this.a = a; }
     }
@@ -29,6 +30,12 @@ public class PnlData {
     public float hudScale = 1.0f;
     public boolean rightSide = true;
     public int rotateSeconds = 7;        // 0 = stay on the profit page
+
+    // Rakeback: each player's net losses toward $1B (not limited to 24h). 10% back when they hit it.
+    public static final double RB_LIMIT = 1e9, RB_PCT = 0.10;
+    public Map<String, Double> rakeback = new HashMap<>();
+    public boolean rbSeeded = false;
+    public boolean rbVisible = true;
 
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("pnltracker.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -55,7 +62,15 @@ public class PnlData {
 
     private void add(String player, double signed) {
         if (balance >= 0) balance += signed;
-        txs.add(new Tx(System.currentTimeMillis(), player, signed));
+        double cur = rakeback.getOrDefault(player, 0.0);
+        boolean claim = false;
+        if (signed > 0) cur += signed;                                   // they lost a bet to you
+        else if (cur >= RB_LIMIT) { cur -= RB_LIMIT; claim = true; }     // you paid a READY player = their rakeback
+        else cur += signed;                                              // you paid them out, so they're less down
+        if (cur <= 0) rakeback.remove(player); else rakeback.put(player, cur);
+        Tx tx = new Tx(System.currentTimeMillis(), player, signed);
+        tx.rb = claim;
+        txs.add(tx);
         prune();
         save();
     }
@@ -78,7 +93,7 @@ public class PnlData {
 
     public void reset() { txs.clear(); save(); }
 
-    /** One row on the Recent Bets page. kind: 0 = LOST (you kept their bet), 1 = WON (you paid them out), 2 = PAID (no bet to match). */
+    /** One row on the Recent Bets page. kind: 0 = LOST (you kept their bet), 1 = WON (you paid them out), 2 = PAID (no bet to match), 3 = RAKE (rakeback payout). */
     public static class Bet {
         public String p; public double amt; public long t; public int kind;
         Bet(String p, double amt, long t, int kind) { this.p = p; this.amt = amt; this.t = t; this.kind = kind; }
@@ -89,6 +104,7 @@ public class PnlData {
         List<Bet> out = new ArrayList<>();
         for (Tx tx : win) {
             if (tx.a >= 0) { out.add(new Bet(tx.p, tx.a, tx.t, 0)); continue; }
+            if (tx.rb) { out.add(new Bet(tx.p, -tx.a, tx.t, 3)); continue; }
             Bet match = null;
             for (int i = out.size() - 1; i >= 0; i--) {
                 Bet b = out.get(i);
@@ -146,14 +162,44 @@ public class PnlData {
                 if (d != null) {
                     if (d.txs == null) d.txs = new ArrayList<>();
                     if (d.hudScale <= 0) d.hudScale = 1.0f;
+                    if (d.rakeback == null) d.rakeback = new HashMap<>();
                     d.prune();
+                    if (!d.rbSeeded) { // start rakeback from today's payments
+                        for (Tx tx : d.window()) d.rakeback.merge(tx.p, tx.a, Double::sum);
+                        d.rakeback.values().removeIf(v -> v <= 0);
+                        d.rbSeeded = true;
+                    }
                     return d;
                 }
             }
         } catch (Exception e) {
             PnlTracker.LOG.warn("Couldn't read pnltracker.json, starting fresh", e);
         }
-        return new PnlData();
+        PnlData fresh = new PnlData();
+        fresh.rbSeeded = true;
+        return fresh;
+    }
+
+    /** Top players by progress toward $1B, closest first. */
+    public List<Map.Entry<String, Double>> rakebackTop(int max) {
+        List<Map.Entry<String, Double>> list = new ArrayList<>(rakeback.entrySet());
+        list.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+        return list.size() > max ? new ArrayList<>(list.subList(0, max)) : list;
+    }
+
+    public boolean rakebackReset(String name) {
+        String key = null;
+        for (String k : rakeback.keySet()) if (k.equalsIgnoreCase(name)) key = k;
+        if (key == null) return false;
+        rakeback.remove(key);
+        save();
+        return true;
+    }
+
+    /** "$500.00M" -> "$500M", "$1.50B" -> "$1.5B" */
+    public static String shortFmt(double v) {
+        String s = format(v);
+        return s.replaceAll("\\.00([KMBT])", "$1").replaceAll("(\\.\\d)0([KMBT])", "$1$2");
     }
 
     public void save() {
