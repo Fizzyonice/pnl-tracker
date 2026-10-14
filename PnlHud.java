@@ -229,7 +229,7 @@ public class PnlHud {
             int badgeBg = b.kind == 0 ? LOST_BG : b.kind == 1 ? WON_BG : b.kind == 3 ? 0x50F29BCB : PAID_BG;
             float bsz = 0.55f;
             int bw = 22;
-            panel(g, rx + 3, cy + 2, bw, rh - 4, badgeBg);
+            pill(g, rx + 3, cy + 2, bw, rh - 4, badgeBg);
             int lw = w(f, label, true, bsz);
             txt(g, f, label, rx + 3 + (bw - lw) / 2f, cy + 3.5f, badgeC, bsz, true, false);
 
@@ -250,50 +250,52 @@ public class PnlHud {
         }
     }
 
-    static final int RB_W = 156, RB_ROW = 25;
+    static final int RB_W = 150, RB_ROW = 17;
+    static final int RB_AMT = 0xFFE4E8F2; // bright so the numbers read on stream
 
     /** RAKEBACK panel: top 6 players by losses toward $1B, with a pink-to-green bar. */
     private static void drawRakeback(GuiGraphicsExtractor g, Font f, PnlData d, int x, int y) {
         List<Map.Entry<String, Double>> top = d.rakebackTop(6);
         int rows = Math.max(1, top.size());
-        int h = P + 13 + rows * RB_ROW + P - 5;
+        int h = 7 + 11 + rows * RB_ROW + 4;
         panel(g, x, y, RB_W, h, PANEL);
         outline(g, x, y, RB_W, h, OUTLINE);
 
-        int cy = y + P;
-        spaced(g, f, "RAKEBACK", x + P, cy, PINK, 0.85f);
+        int px = 7;
+        int cy = y + 7;
+        spaced(g, f, "RAKEBACK", x + px, cy, PINK, 0.78f);
         String sub = Math.round(PnlData.RB_PCT * 100) + "% over " + PnlData.shortFmt(PnlData.RB_LIMIT) + " lost";
-        txt(g, f, sub, x + RB_W - P - w(f, sub, false, 0.62f), cy + 1, LABEL, 0.62f, false, false);
-        cy += 13;
+        txt(g, f, sub, x + RB_W - px - w(f, sub, false, 0.66f), cy + 1, LABEL, 0.66f, false, false);
+        cy += 11;
 
         if (top.isEmpty()) {
-            panel(g, x + P, cy, RB_W - 2 * P, RB_ROW - 3, CARD);
-            txt(g, f, "No losses yet", x + P + 6, cy + 7, LABEL, 0.8f, false, false);
+            panel(g, x + px, cy, RB_W - 2 * px, RB_ROW - 2, CARD);
+            txt(g, f, "No losses yet", x + px + 5, cy + 4, LABEL, 0.8f, false, false);
             return;
         }
         for (Map.Entry<String, Double> e : top) {
-            int rx = x + P, rw = RB_W - 2 * P, rh = RB_ROW - 3;
+            int rx = x + px, rw = RB_W - 2 * px, rh = RB_ROW - 2;
             panel(g, rx, cy, rw, rh, CARD);
             double v = e.getValue();
             boolean ready = v >= PnlData.RB_LIMIT;
 
             String amt = ready ? "READY " + PnlData.shortFmt(PnlData.RB_LIMIT * PnlData.RB_PCT)
                                : PnlData.shortFmt(v) + " / " + PnlData.shortFmt(PnlData.RB_LIMIT);
-            float as = 0.7f;
-            int aw = w(f, amt, ready, as);
-            txt(g, f, amt, rx + rw - 6 - aw, cy + 5, ready ? GREEN : LABEL, as, ready, false);
-            txt(g, f, trim(f, e.getKey(), true, 0.85f, rw - 12 - aw - 6), rx + 6, cy + 4, WHITE, 0.85f, true, false);
+            float ts = 0.8f;
+            int aw = w(f, amt, true, ts);
+            txt(g, f, amt, rx + rw - 5 - aw, cy + 2, ready ? GREEN : RB_AMT, ts, true, false);
+            txt(g, f, trim(f, e.getKey(), true, ts, rw - 10 - aw - 6), rx + 5, cy + 2, WHITE, ts, true, false);
 
-            // progress bar (drawn at half-pixel resolution so it's thin)
-            int bx = rx + 6, bw = rw - 12, by = cy + 15;
+            // thin progress bar under the text
+            int bx = rx + 5, bw = rw - 10, by = cy + 11;
             float frac = (float) Math.min(1.0, v / PnlData.RB_LIMIT);
             g.pose().pushMatrix();
             g.pose().scale(0.5f, 0.5f);
-            g.fill(bx * 2, by * 2, (bx + bw) * 2, by * 2 + 4, 0x26FFFFFF);
+            g.fill(bx * 2, by * 2, (bx + bw) * 2, by * 2 + 3, 0x26FFFFFF);
             int fillEnd = Math.round(bw * 2 * frac);
             for (int i = 0; i < fillEnd; i += 2) {
                 float t = i / (float) (bw * 2);
-                g.fill(bx * 2 + i, by * 2, bx * 2 + Math.min(i + 2, fillEnd), by * 2 + 4, lerp(PINK, GREEN, t));
+                g.fill(bx * 2 + i, by * 2, bx * 2 + Math.min(i + 2, fillEnd), by * 2 + 3, lerp(PINK, GREEN, t));
             }
             g.pose().popMatrix();
             cy += RB_ROW;
@@ -417,6 +419,21 @@ public class PnlHud {
         g.fill(x + w - 3, y + 1, x + w - 1, y + 3, col);
         g.fill(x + 1, y + h - 3, x + 3, y + h - 1, col);
         g.fill(x + w - 3, y + h - 3, x + w - 1, y + h - 1, col);
+    }
+
+    /** Smooth capsule ("sideways oval"), drawn at quarter-pixel resolution so the ends look round. */
+    private static void pill(GuiGraphicsExtractor g, float x, float y, float w, float h, int col) {
+        final int Q = 4;
+        int X = Math.round(x * Q), Y = Math.round(y * Q), Wd = Math.round(w * Q), H = Math.round(h * Q);
+        float r = H / 2f;
+        g.pose().pushMatrix();
+        g.pose().scale(1f / Q, 1f / Q);
+        for (int row = 0; row < H; row++) {
+            float dy = r - (row + 0.5f);
+            int inset = (int) Math.ceil(r - Math.sqrt(Math.max(0f, r * r - dy * dy)));
+            g.fill(X + inset, Y + row, X + Wd - inset, Y + row + 1, col);
+        }
+        g.pose().popMatrix();
     }
 
     /** 1px rounded outline, drawn at half-pixel resolution so it looks thin. */
