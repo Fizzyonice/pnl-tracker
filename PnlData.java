@@ -29,6 +29,7 @@ public class PnlData {
     public boolean hudVisible = true;
     public float hudScale = 1.0f;
     public boolean rightSide = true;
+    public long profitStart = 0;         // /pnl reset profit: chart + profit only count payments after this
     public int rotateSeconds = 7;        // 0 = stay on the profit page
 
     // Rakeback: each player's net losses toward $1B (not limited to 24h). 10% back when they hit it.
@@ -91,7 +92,9 @@ public class PnlData {
         return out;
     }
 
-    public void reset() { txs.clear(); save(); }
+    public void reset() { txs.clear(); profitStart = 0; save(); }
+
+    public void resetProfit() { profitStart = System.currentTimeMillis(); save(); }
 
     /** One row on the Recent Bets page. kind: 0 = LOST (you kept their bet), 1 = WON (you paid them out), 2 = PAID (no bet to match), 3 = RAKE (rakeback payout). */
     public static class Bet {

@@ -47,7 +47,12 @@ public class PnlTracker implements ClientModInitializer {
                         .append(Component.literal("  (/pnl reset, toggle, size 0.5-2, side left|right, rotate 0-60)").withStyle(ChatFormatting.GRAY)));
                     return 1;
                 })
-                .then(ClientCommands.literal("reset").executes(ctx -> { DATA.reset(); say(ctx, "PnL tracker reset."); return 1; }))
+                .then(ClientCommands.literal("reset").executes(ctx -> { DATA.reset(); say(ctx, "PnL tracker reset."); return 1; })
+                    .then(ClientCommands.literal("profit").executes(ctx -> {
+                        DATA.resetProfit();
+                        say(ctx, "24H profit and chart reset. Recent bets, winners/losers and rakeback kept.");
+                        return 1;
+                    })))
                 .then(ClientCommands.literal("toggle").executes(ctx -> {
                     DATA.hudVisible = !DATA.hudVisible; DATA.save();
                     say(ctx, "PnL HUD " + (DATA.hudVisible ? "shown" : "hidden")); return 1;

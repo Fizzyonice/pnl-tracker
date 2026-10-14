@@ -100,11 +100,14 @@ public class PnlHud {
         int sh = (int) (mc.getWindow().getGuiScaledHeight() / s);
 
         List<PnlData.Tx> win = d.window();
+        List<PnlData.Tx> pwin = new ArrayList<>(); // payments counted toward 24H profit + chart
         double in = 0, out = 0;
         Map<String, Double> nets = new HashMap<>();
         for (PnlData.Tx tx : win) {
-            if (tx.a >= 0) in += tx.a; else out -= tx.a;
             nets.merge(tx.p, tx.a, Double::sum);
+            if (tx.t < d.profitStart) continue;
+            pwin.add(tx);
+            if (tx.a >= 0) in += tx.a; else out -= tx.a;
         }
         double profit = in - out;
 
@@ -140,7 +143,7 @@ public class PnlHud {
         panel(g, x, y, W, h, PANEL);
         outline(g, x, y, W, h, OUTLINE);
 
-        if (page == 0) drawProfit(g, f, d, x, y + P, win, in, out, profit, winners, losers, listRows, recentRows, chartH, boxH);
+        if (page == 0) drawProfit(g, f, d, x, y + P, win, pwin, in, out, profit, winners, losers, listRows, recentRows, chartH, boxH);
         else drawBets(g, f, d, x, y + P, bets);
 
         if (rotating) footer(g, x, y + h - P - 4, page, (now % period) / (float) period);
@@ -154,7 +157,7 @@ public class PnlHud {
         g.pose().popMatrix();
     }
 
-    private static void drawProfit(GuiGraphicsExtractor g, Font f, PnlData d, int x, int cy, List<PnlData.Tx> win,
+    private static void drawProfit(GuiGraphicsExtractor g, Font f, PnlData d, int x, int cy, List<PnlData.Tx> win, List<PnlData.Tx> pwin,
                                    double in, double out, double profit,
                                    List<Map.Entry<String, Double>> winners, List<Map.Entry<String, Double>> losers,
                                    int listRows, int recentRows, int chartH, int boxH) {
@@ -176,7 +179,7 @@ public class PnlHud {
         txt(g, f, PnlData.format(out), ix, cy, WHITE, ls, true, false);
         cy += 13;
 
-        chart(g, f, win, x + P, cy, W - 2 * P, chartH, profit);
+        chart(g, f, pwin, x + P, cy, W - 2 * P, chartH, profit);
         cy += chartH + 7;
 
         int colW = (W - 2 * P - 6) / 2;
