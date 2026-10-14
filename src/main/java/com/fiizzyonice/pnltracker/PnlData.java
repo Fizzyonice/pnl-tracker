@@ -17,6 +17,7 @@ public class PnlData {
     public int payments = 0;
     public double balance = -1;          // -1 = unknown until "You have $..." shows up
     public boolean hudVisible = true;
+    public float hudScale = 1.0f;          // set with /pnl size
     public Map<String, Double> playerNets = new HashMap<>(); // + = they paid you more, - = you paid them more
     public List<String> recent = new ArrayList<>();          // last few payments, newest first
 
@@ -110,6 +111,7 @@ public class PnlData {
                 if (d != null) {
                     if (d.playerNets == null) d.playerNets = new HashMap<>();
                     if (d.recent == null) d.recent = new ArrayList<>();
+                    if (d.hudScale <= 0) d.hudScale = 1.0f;
                     return d;
                 }
             }

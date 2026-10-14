@@ -1,5 +1,6 @@
 package com.fiizzyonice.pnltracker;
 
+import com.mojang.brigadier.arguments.FloatArgumentType;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
@@ -35,7 +36,7 @@ public class PnlTracker implements ClientModInitializer {
                     ctx.getSource().sendFeedback(Component.literal("PnL: ")
                         .append(Component.literal(PnlData.signed(net))
                             .withStyle(net >= 0 ? ChatFormatting.GREEN : ChatFormatting.RED))
-                        .append(Component.literal("  (/pnl reset, /pnl toggle)").withStyle(ChatFormatting.GRAY)));
+                        .append(Component.literal("  (/pnl reset, /pnl toggle, /pnl size 0.5-2)").withStyle(ChatFormatting.GRAY)));
                     return 1;
                 })
                 .then(ClientCommands.literal("reset").executes(ctx -> {
@@ -50,6 +51,14 @@ public class PnlTracker implements ClientModInitializer {
                         .withStyle(ChatFormatting.LIGHT_PURPLE));
                     return 1;
                 }))
+                .then(ClientCommands.literal("size")
+                    .then(ClientCommands.argument("scale", FloatArgumentType.floatArg(0.5f, 2.0f)).executes(ctx -> {
+                        DATA.hudScale = FloatArgumentType.getFloat(ctx, "scale");
+                        DATA.save();
+                        ctx.getSource().sendFeedback(Component.literal("PnL HUD size set to " + DATA.hudScale)
+                            .withStyle(ChatFormatting.LIGHT_PURPLE));
+                        return 1;
+                    })))
             ));
     }
 }
