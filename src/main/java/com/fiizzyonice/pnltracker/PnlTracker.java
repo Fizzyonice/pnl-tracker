@@ -1,14 +1,14 @@
 package com.fiizzyonice.pnltracker;
 
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Identifier;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,27 +26,28 @@ public class PnlTracker implements ClientModInitializer {
         });
 
         HudElementRegistry.attachElementAfter(VanillaHudElements.CHAT,
-                Identifier.of("pnltracker", "hud"), PnlHud::render);
+                Identifier.fromNamespaceAndPath("pnltracker", "hud"), PnlHud::render);
 
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, access) ->
-            dispatcher.register(ClientCommandManager.literal("pnl")
+            dispatcher.register(ClientCommands.literal("pnl")
                 .executes(ctx -> {
-                    ctx.getSource().sendFeedback(Text.literal("PnL: ")
-                        .append(Text.literal(PnlData.signed(DATA.net()))
-                            .formatted(DATA.net() >= 0 ? Formatting.GREEN : Formatting.RED))
-                        .append(Text.literal("  (/pnl reset, /pnl toggle)").formatted(Formatting.GRAY)));
+                    double net = DATA.net();
+                    ctx.getSource().sendFeedback(Component.literal("PnL: ")
+                        .append(Component.literal(PnlData.signed(net))
+                            .withStyle(net >= 0 ? ChatFormatting.GREEN : ChatFormatting.RED))
+                        .append(Component.literal("  (/pnl reset, /pnl toggle)").withStyle(ChatFormatting.GRAY)));
                     return 1;
                 })
-                .then(ClientCommandManager.literal("reset").executes(ctx -> {
+                .then(ClientCommands.literal("reset").executes(ctx -> {
                     DATA.reset();
-                    ctx.getSource().sendFeedback(Text.literal("PnL tracker reset.").formatted(Formatting.LIGHT_PURPLE));
+                    ctx.getSource().sendFeedback(Component.literal("PnL tracker reset.").withStyle(ChatFormatting.LIGHT_PURPLE));
                     return 1;
                 }))
-                .then(ClientCommandManager.literal("toggle").executes(ctx -> {
+                .then(ClientCommands.literal("toggle").executes(ctx -> {
                     DATA.hudVisible = !DATA.hudVisible;
                     DATA.save();
-                    ctx.getSource().sendFeedback(Text.literal("PnL HUD " + (DATA.hudVisible ? "shown" : "hidden"))
-                        .formatted(Formatting.LIGHT_PURPLE));
+                    ctx.getSource().sendFeedback(Component.literal("PnL HUD " + (DATA.hudVisible ? "shown" : "hidden"))
+                        .withStyle(ChatFormatting.LIGHT_PURPLE));
                     return 1;
                 }))
             ));

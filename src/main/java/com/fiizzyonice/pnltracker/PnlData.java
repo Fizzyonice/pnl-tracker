@@ -12,7 +12,6 @@ import java.util.regex.Pattern;
 
 /** Holds totals and parses DonutSMP payment messages. Saved to config/pnltracker.json. */
 public class PnlData {
-    // Saved fields
     public double received = 0;
     public double sent = 0;
     public int payments = 0;
@@ -32,7 +31,6 @@ public class PnlData {
 
     public double net() { return received - sent; }
 
-    /** Returns true if the message was a payment/balance line. */
     public boolean handle(String raw) {
         String msg = raw.trim();
         Matcher m;
@@ -75,13 +73,15 @@ public class PnlData {
     /** Handles "1,250,000", "1.5M", "392.97B", "2.1 K" etc. */
     public static double parseAmount(String s) {
         s = s.replace(",", "").replace(" ", "");
+        if (s.endsWith(".")) s = s.substring(0, s.length() - 1);
+        if (s.isEmpty()) return 0;
         double mult = 1;
-        char last = Character.toUpperCase(s.charAt(s.length() - 1));
-        switch (last) {
+        switch (Character.toUpperCase(s.charAt(s.length() - 1))) {
             case 'K' -> mult = 1e3;
             case 'M' -> mult = 1e6;
             case 'B' -> mult = 1e9;
             case 'T' -> mult = 1e12;
+            default -> {}
         }
         if (mult != 1) s = s.substring(0, s.length() - 1);
         try { return Double.parseDouble(s) * mult; } catch (NumberFormatException e) { return 0; }
