@@ -85,6 +85,9 @@ public class PnlHud {
     }
 
     // ---------- render ----------
+    static final int BET_ROWS = 12, BET_ROW_H = 14, FOOT = 12;
+    static final int LOST_BG = 0x5534C66E, WON_BG = 0x55E8435E, PAID_BG = 0x40A0A8C0;
+
     public static void render(GuiGraphicsExtractor g, DeltaTracker tick) {
         PnlData d = PnlTracker.DATA;
         if (d == null || !d.hudVisible) return;
@@ -115,10 +118,19 @@ public class PnlHud {
         }
         int listRows = Math.max(1, Math.max(winners.size(), losers.size()));
         int recentRows = Math.min(3, win.size());
+        List<PnlData.Bet> bets = PnlData.bets(win);
 
         int chartH = 62;
         int boxH = 6 + 10 + listRows * 11 + 3;
-        int h = P + 11 + 22 + 13 + chartH + 7 + boxH + (recentRows > 0 ? 7 + recentRows * 12 : 0) + P - 2;
+        int profitH = 12 + 22 + 13 + chartH + 7 + boxH + (recentRows > 0 ? 7 + recentRows * 12 : 0);
+        int betsH = 14 + Math.max(1, Math.min(BET_ROWS, bets.size())) * BET_ROW_H;
+        boolean rotating = d.rotateSeconds > 0;
+        int bodyH = rotating ? Math.max(profitH, betsH) : profitH;
+        int h = P + bodyH + (rotating ? FOOT : 0) + P - 2;
+
+        long now = System.currentTimeMillis();
+        long period = Math.max(1, d.rotateSeconds) * 1000L;
+        int page = rotating ? (int) ((now / period) % 2) : 0;
 
         g.pose().pushMatrix();
         g.pose().scale(s, s);
@@ -128,23 +140,28 @@ public class PnlHud {
         panel(g, x, y, W, h, PANEL);
         outline(g, x, y, W, h, OUTLINE);
 
-        // header
-        int cy = y + P;
-        spaced(g, f, "24H PROFIT", x + P, cy, PINK, 0.85f);
-        if (d.balance >= 0) {
-            String bal = "Bal " + PnlData.format(d.balance);
-            txt(g, f, bal, x + W - P - w(f, bal, false, 0.8f), cy, LABEL, 0.8f, false, false);
-        }
+        if (page == 0) drawProfit(g, f, d, x, y + P, win, in, out, profit, winners, losers, listRows, recentRows, chartH, boxH);
+        else drawBets(g, f, d, x, y + P, bets);
+
+        if (rotating) footer(g, x, y + h - P - 4, page, (now % period) / (float) period);
+
+        balanceCard(g, f, d, mc.getUser().getName(), sw, sh);
+        g.pose().popMatrix();
+    }
+
+    private static void drawProfit(GuiGraphicsExtractor g, Font f, PnlData d, int x, int cy, List<PnlData.Tx> win,
+                                   double in, double out, double profit,
+                                   List<Map.Entry<String, Double>> winners, List<Map.Entry<String, Double>> losers,
+                                   int listRows, int recentRows, int chartH, int boxH) {
+        header(g, f, d, x, cy, "24H PROFIT");
         cy += 12;
 
-        // big profit
         String big = PnlData.signed(profit);
         float bs = 2.3f;
         while (w(f, big, true, bs) > W - 2 * P && bs > 1.2f) bs -= 0.05f;
         txt(g, f, big, x + P, cy, profit >= 0 ? GREEN : RED, bs, true, true);
         cy += 22;
 
-        // in / out
         float ls = 0.85f;
         int ix = x + P;
         txt(g, f, "In ", ix, cy, LABEL, ls, false, false);       ix += w(f, "In ", false, ls);
@@ -154,11 +171,9 @@ public class PnlHud {
         txt(g, f, PnlData.format(out), ix, cy, WHITE, ls, true, false);
         cy += 13;
 
-        // chart
         chart(g, f, win, x + P, cy, W - 2 * P, chartH, profit);
         cy += chartH + 7;
 
-        // top winners / losers boxes
         int colW = (W - 2 * P - 6) / 2;
         int lx = x + P, rx = x + P + colW + 6;
         panel(g, lx, cy, colW, boxH, CARD);
@@ -175,13 +190,12 @@ public class PnlHud {
         }
         cy += boxH;
 
-        // recent payments
         if (recentRows > 0) {
             cy += 7;
             for (int i = 0; i < recentRows; i++) {
                 PnlData.Tx tx = win.get(win.size() - 1 - i);
                 boolean got = tx.a >= 0;
-                text(g, f, Component.literal(got ? "←" : "→"), x + P, cy, LABEL, 0.85f, false);
+                text(g, f, Component.literal(got ? "\u2190" : "\u2192"), x + P, cy, LABEL, 0.85f, false);
                 String amt = PnlData.signed(tx.a);
                 int aw = w(f, amt, true, 0.85f);
                 txt(g, f, trim(f, tx.p, true, 0.85f, W - 2 * P - 14 - aw - 6), x + P + 11, cy, WHITE, 0.85f, true, false);
@@ -189,8 +203,67 @@ public class PnlHud {
                 cy += 12;
             }
         }
+    }
 
-        balanceCard(g, f, d, mc.getUser().getName(), sw, sh);
+    /** RECENT BETS page: badge, player, amount, time ago. */
+    private static void drawBets(GuiGraphicsExtractor g, Font f, PnlData d, int x, int cy, List<PnlData.Bet> bets) {
+        header(g, f, d, x, cy, "RECENT BETS");
+        cy += 14;
+        if (bets.isEmpty()) {
+            txt(g, f, "No bets yet", x + P, cy + 2, LABEL, 0.85f, false, false);
+            return;
+        }
+        int n = Math.min(BET_ROWS, bets.size());
+        for (int i = 0; i < n; i++) {
+            PnlData.Bet b = bets.get(i);
+            int rx = x + P, rw = W - 2 * P, rh = BET_ROW_H - 2;
+            panel(g, rx, cy, rw, rh, CARD);
+
+            String label = b.kind == 0 ? "LOST" : b.kind == 1 ? "WON" : "PAID";
+            int badgeC = b.kind == 0 ? GREEN : RED;
+            int badgeBg = b.kind == 0 ? LOST_BG : b.kind == 1 ? WON_BG : PAID_BG;
+            float bsz = 0.55f;
+            int bw = 22;
+            panel(g, rx + 3, cy + 2, bw, rh - 4, badgeBg);
+            int lw = w(f, label, true, bsz);
+            txt(g, f, label, rx + 3 + (bw - lw) / 2f, cy + 3.5f, badgeC, bsz, true, false);
+
+            String ago = PnlData.ago(b.t);
+            float ts = 0.7f;
+            int tw = w(f, ago, false, ts);
+            txt(g, f, ago, rx + rw - 4 - tw, cy + 3, LABEL, ts, false, false);
+
+            String amt = PnlData.format(b.amt);
+            float as = 0.82f;
+            int aw = w(f, amt, true, as);
+            int ax = rx + rw - 4 - 16 - aw;
+            txt(g, f, amt, ax, cy + 2, b.kind == 0 ? GREEN : RED, as, true, false);
+
+            int nx = rx + 3 + bw + 5;
+            txt(g, f, trim(f, b.p, true, 0.82f, ax - nx - 4), nx, cy + 2, WHITE, 0.82f, true, false);
+            cy += BET_ROW_H;
+        }
+    }
+
+    private static void header(GuiGraphicsExtractor g, Font f, PnlData d, int x, int cy, String title) {
+        spaced(g, f, title, x + P, cy, PINK, 0.85f);
+        if (d.balance >= 0) {
+            String bal = "Bal " + PnlData.format(d.balance);
+            txt(g, f, bal, x + W - P - w(f, bal, false, 0.8f), cy, LABEL, 0.8f, false, false);
+        }
+    }
+
+    /** Page dots + a bar that fills up until the next page switch. */
+    private static void footer(GuiGraphicsExtractor g, int x, int y, int page, float progress) {
+        for (int i = 0; i < 2; i++) {
+            int dx = x + P + i * 6;
+            g.fill(dx, y, dx + 3, y + 3, i == page ? PINK : 0x60FFFFFF);
+        }
+        int bx = x + P + 16, bw = W - 2 * P - 16;
+        g.pose().pushMatrix();
+        g.pose().scale(0.5f, 0.5f);
+        g.fill(bx * 2, y * 2 + 2, (bx + bw) * 2, y * 2 + 4, 0x30FFFFFF);
+        g.fill(bx * 2, y * 2 + 2, bx * 2 + Math.round(bw * 2 * progress), y * 2 + 4, PINK);
         g.pose().popMatrix();
     }
 

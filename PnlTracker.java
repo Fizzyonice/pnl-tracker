@@ -1,6 +1,7 @@
 package com.fiizzyonice.pnltracker;
 
 import com.mojang.brigadier.arguments.FloatArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
@@ -42,7 +43,7 @@ public class PnlTracker implements ClientModInitializer {
                     ctx.getSource().sendFeedback(Component.literal("24h PnL: ")
                         .append(Component.literal(PnlData.signed(net))
                             .withStyle(net >= 0 ? ChatFormatting.GREEN : ChatFormatting.RED))
-                        .append(Component.literal("  (/pnl reset, toggle, size 0.5-2, side left|right)").withStyle(ChatFormatting.GRAY)));
+                        .append(Component.literal("  (/pnl reset, toggle, size 0.5-2, side left|right, rotate 0-60)").withStyle(ChatFormatting.GRAY)));
                     return 1;
                 })
                 .then(ClientCommands.literal("reset").executes(ctx -> { DATA.reset(); say(ctx, "PnL tracker reset."); return 1; }))
@@ -54,6 +55,12 @@ public class PnlTracker implements ClientModInitializer {
                     .then(ClientCommands.argument("scale", FloatArgumentType.floatArg(0.5f, 2.0f)).executes(ctx -> {
                         DATA.hudScale = FloatArgumentType.getFloat(ctx, "scale"); DATA.save();
                         say(ctx, "PnL HUD size set to " + DATA.hudScale); return 1;
+                    })))
+                .then(ClientCommands.literal("rotate")
+                    .then(ClientCommands.argument("seconds", IntegerArgumentType.integer(0, 60)).executes(ctx -> {
+                        DATA.rotateSeconds = IntegerArgumentType.getInteger(ctx, "seconds"); DATA.save();
+                        say(ctx, DATA.rotateSeconds == 0 ? "PnL HUD will stay on the profit page." : "PnL HUD switches pages every " + DATA.rotateSeconds + "s.");
+                        return 1;
                     })))
                 .then(ClientCommands.literal("side")
                     .then(ClientCommands.literal("left").executes(ctx -> { DATA.rightSide = false; DATA.save(); say(ctx, "PnL HUD moved left."); return 1; }))

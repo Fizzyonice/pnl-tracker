@@ -28,6 +28,7 @@ public class PnlData {
     public boolean hudVisible = true;
     public float hudScale = 1.0f;
     public boolean rightSide = true;
+    public int rotateSeconds = 7;        // 0 = stay on the profit page
 
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("pnltracker.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -76,6 +77,36 @@ public class PnlData {
     }
 
     public void reset() { txs.clear(); save(); }
+
+    /** One row on the Recent Bets page. kind: 0 = LOST (you kept their bet), 1 = WON (you paid them out), 2 = PAID (no bet to match). */
+    public static class Bet {
+        public String p; public double amt; public long t; public int kind;
+        Bet(String p, double amt, long t, int kind) { this.p = p; this.amt = amt; this.t = t; this.kind = kind; }
+    }
+
+    /** Turns payments into bets: incoming = a bet (LOST); paying that player back within 30 min = WON. Newest first. */
+    public static List<Bet> bets(List<Tx> win) {
+        List<Bet> out = new ArrayList<>();
+        for (Tx tx : win) {
+            if (tx.a >= 0) { out.add(new Bet(tx.p, tx.a, tx.t, 0)); continue; }
+            Bet match = null;
+            for (int i = out.size() - 1; i >= 0; i--) {
+                Bet b = out.get(i);
+                if (b.kind == 0 && b.p.equalsIgnoreCase(tx.p) && tx.t - b.t <= 30L * 60 * 1000) { match = b; break; }
+            }
+            if (match != null) { match.kind = 1; match.amt = -tx.a; match.t = tx.t; }
+            else out.add(new Bet(tx.p, -tx.a, tx.t, 2));
+        }
+        out.sort((a, b) -> Long.compare(b.t, a.t));
+        return out;
+    }
+
+    public static String ago(long t) {
+        long s = Math.max(0, (System.currentTimeMillis() - t) / 1000);
+        if (s < 60) return "now";
+        if (s < 3600) return (s / 60) + "m";
+        return (s / 3600) + "h";
+    }
 
     /** Handles "1,250,000", "1.5M", "392.97B", "2.1 K" etc. */
     public static double parseAmount(String s) {
