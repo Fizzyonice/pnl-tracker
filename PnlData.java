@@ -46,8 +46,32 @@ public class PnlData {
     private static final Pattern RECEIVED = Pattern.compile("^([A-Za-z0-9_.]{2,17}) paid you " + AMT, Pattern.CASE_INSENSITIVE);
     private static final Pattern SENT     = Pattern.compile("^You paid ([A-Za-z0-9_.]{2,17}) " + AMT, Pattern.CASE_INSENSITIVE);
     private static final Pattern BALANCE  = Pattern.compile("^You have " + AMT, Pattern.CASE_INSENSITIVE);
+    // Balance-only money (doesn't count toward profit, bets or rakeback)
+    private static final Pattern AH_SOLD   = Pattern.compile("^[A-Za-z0-9_.]{2,17} bought your .+ for " + AMT + "\\W*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern AH_BOUGHT = Pattern.compile("^You bought .+ for " + AMT + "\\W*$", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SOLD      = Pattern.compile("^\\+?\\s?" + AMT + "\\W*$"); // /sell: just "$ 3.2K"
+
+    /** Auction house buys/sells and /sell: only moves the balance. */
+    public boolean handleMoney(String raw) {
+        String msg = raw.trim();
+        Matcher m;
+        if ((m = AH_SOLD.matcher(msg)).find())   { moveBalance(parseAmount(m.group(1)));  return true; }
+        if ((m = AH_BOUGHT.matcher(msg)).find()) { moveBalance(-parseAmount(m.group(1))); return true; }
+        if ((m = SOLD.matcher(msg)).find())      { moveBalance(parseAmount(m.group(1)));  return true; }
+        return false;
+    }
+
+    private void moveBalance(double signed) {
+        if (signed == 0) return;
+        if (balance >= 0) balance += signed;
+        long now = System.currentTimeMillis();
+        lastDelta = (now - lastDeltaAt < 6000) ? lastDelta + signed : signed;
+        lastDeltaAt = now;
+        save();
+    }
 
     public boolean handle(String raw) {
+        if (handleMoney(raw)) return true;
         String msg = raw.trim();
         Matcher m;
         if ((m = RECEIVED.matcher(msg)).find()) { add(m.group(1), parseAmount(m.group(2))); return true; }
@@ -57,6 +81,7 @@ public class PnlData {
     }
 
     public void handleBalanceOnly(String raw) {
+        if (handleMoney(raw)) return;
         Matcher m = BALANCE.matcher(raw.trim());
         if (m.find()) { balance = parseAmount(m.group(1)); save(); }
     }
