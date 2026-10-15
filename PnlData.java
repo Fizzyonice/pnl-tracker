@@ -61,8 +61,15 @@ public class PnlData {
         if (m.find()) { balance = parseAmount(m.group(1)); save(); }
     }
 
+    // last balance change, for the +$200M / -$200M under the balance (not saved)
+    public transient double lastDelta = 0;
+    public transient long lastDeltaAt = 0;
+
     private void add(String player, double signed) {
         if (balance >= 0) balance += signed;
+        long now = System.currentTimeMillis();
+        lastDelta = (now - lastDeltaAt < 6000) ? lastDelta + signed : signed; // quick payments add together
+        lastDeltaAt = now;
         double cur = rakeback.getOrDefault(player, 0.0);
         boolean claim = false;
         if (signed > 0) cur += signed;                                   // they lost a bet to you

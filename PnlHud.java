@@ -100,7 +100,7 @@ public class PnlHud {
 
     private static void textA(GuiGraphicsExtractor g, Font f, Component c, int x, int y, int col, boolean shadow) {
         if (ALPHA < 0.06f) return; // very low alpha text can render solid, so skip it
-        g.text(f, c, x, y, fade(col), shadow && ALPHA > 0.6f);
+        g.text(f, c, x, y, fade(col), false);
     }
 
     // ---------- render ----------
@@ -198,7 +198,7 @@ public class PnlHud {
         String big = PnlData.signed(profit);
         float bs = 2.3f;
         while (w(f, big, true, bs) > W - 2 * P && bs > 1.2f) bs -= 0.05f;
-        txt(g, f, big, x + P, cy, profit >= 0 ? GREEN : RED, bs, true, true);
+        heavy(g, f, big, x + P, cy, profit >= 0 ? GREEN : RED, bs);
         cy += 22;
 
         float ls = 0.85f;
@@ -390,7 +390,7 @@ public class PnlHud {
     private static void footer(GuiGraphicsExtractor g, int x, int y, int page, float progress) {
         for (int i = 0; i < PAGES; i++) {
             int dx = x + P + i * 6;
-            fillA(g, dx, y, dx + 3, y + 3, i == page ? PINK : 0x60FFFFFF);
+            circle(g, dx + 1.5f, y + 1.5f, 1.7f, i == page ? PINK : 0x60FFFFFF);
         }
         int bx = x + P + 22, bw = W - 2 * P - 22;
         g.pose().pushMatrix();
@@ -401,18 +401,47 @@ public class PnlHud {
     }
 
     /** Bottom-right card: name and full live balance. */
+    // rolling balance animation
+    private static double shownBal = -1;
+    private static long lastFrame = 0;
+
     private static void balanceCard(GuiGraphicsExtractor g, Font f, PnlData d, String name, int sw, int sh) {
-        int cw = 200, ch = 46;
+        int cw = 210, ch = 50;
         int x = sw - cw - M, y = sh - ch - M;
         panel(g, x, y, cw, ch, PANEL);
         outline(g, x, y, cw, ch, OUTLINE);
         int tx = x + 10, tw = cw - 20;
-        spaced(g, f, name.toUpperCase(), tx, y + 6, PINK, 0.75f);
-        String bal = d.balance >= 0 ? "$" + String.format("%,.0f", d.balance) : "/bal to load";
-        float bs = 2.0f;
-        while (w(f, bal, true, bs) > tw && bs > 0.8f) bs -= 0.05f;
-        txt(g, f, bal, tx, y + 16, d.balance >= 0 ? GREEN : LABEL, bs, true, true);
-        spaced(g, f, "BALANCE", tx, y + ch - 10, LABEL, 0.6f);
+        spaced(g, f, name.toUpperCase(), tx, y + 6, PINK, 0.78f);
+
+        long now = System.currentTimeMillis();
+        float dt = lastFrame == 0 ? 1f : Math.min(1f, (now - lastFrame) / 1000f);
+        lastFrame = now;
+        if (d.balance < 0) shownBal = -1;
+        else if (shownBal < 0) shownBal = d.balance;
+        else {
+            double diff = d.balance - shownBal;
+            if (Math.abs(diff) < 1) shownBal = d.balance;
+            else shownBal += diff * (1 - Math.exp(-dt * 5.0)); // fast roll, slows near the end
+        }
+
+        String bal = d.balance >= 0 ? "$" + String.format("%,.0f", (double) Math.round(shownBal)) : "/bal to load";
+        float bs = 2.1f;
+        String sizer = d.balance >= 0 ? "$" + String.format("%,.0f", d.balance) : bal; // size by the real number so it doesn't wobble
+        while (w(f, sizer, true, bs) > tw && bs > 0.8f) bs -= 0.05f;
+        heavy(g, f, bal, tx, y + 16, d.balance >= 0 ? GREEN : LABEL, bs);
+
+        int by = y + ch - 11;
+        spaced(g, f, "BALANCE", tx, by, LABEL, 0.62f);
+        long age = now - d.lastDeltaAt;
+        if (d.lastDeltaAt > 0 && age < 6000 && Math.abs(d.lastDelta) >= 1) {
+            float a = age > 5000 ? (6000 - age) / 1000f : 1f; // fade out in the last second
+            String ds = PnlData.signed(d.lastDelta).replace(".00", "");
+            int col = d.lastDelta >= 0 ? GREEN : RED;
+            float old = ALPHA;
+            ALPHA = a;
+            txt(g, f, ds, tx + spacedW(f, "BALANCE", 0.62f) + 6, by - 1.5f, col, 0.8f, true, false);
+            ALPHA = old;
+        }
     }
 
     /** Profit after every payment, so each payment is a visible jump. Green above zero, red below. */
@@ -463,7 +492,9 @@ public class PnlHud {
             lastY = yy;
         }
         int endC = profit >= 0 ? GREEN : RED;
-        fillA(g, Rt - 3, lastY - 2, Rt + 4, lastY + 5, endC); // end dot
+        g.pose().popMatrix();
+        circle(g, (Rt + 0.5f) / R, (lastY + 1.5f) / R, 2.2f, endC); // end dot
+        g.pose().pushMatrix();
         g.pose().popMatrix();
 
         txt(g, f, PnlData.signed(max - pad), cx + 4, cy + 3, LABEL, 0.62f, false, false);
@@ -502,6 +533,21 @@ public class PnlHud {
         fillA(g, x + w - 3, y + 1, x + w - 1, y + 3, col);
         fillA(g, x + 1, y + h - 3, x + 3, y + h - 1, col);
         fillA(g, x + w - 3, y + h - 3, x + w - 1, y + h - 1, col);
+    }
+
+    /** Smooth filled circle, drawn at quarter-pixel resolution. */
+    private static void circle(GuiGraphicsExtractor g, float cx, float cy, float r, int col) {
+        final int Q = 4;
+        float R = r * Q, CX = cx * Q, CY = cy * Q;
+        g.pose().pushMatrix();
+        g.pose().scale(1f / Q, 1f / Q);
+        for (int yy = (int) Math.floor(CY - R); yy < Math.ceil(CY + R); yy++) {
+            float dy = yy + 0.5f - CY;
+            float hw = (float) Math.sqrt(Math.max(0f, R * R - dy * dy));
+            if (hw <= 0) continue;
+            fillA(g, Math.round(CX - hw), yy, Math.round(CX + hw), yy + 1, col);
+        }
+        g.pose().popMatrix();
     }
 
     /** Smooth capsule ("sideways oval"), drawn at quarter-pixel resolution so the ends look round. */
@@ -543,6 +589,12 @@ public class PnlHud {
         return (int) Math.ceil(f.width(c(s, bold)) * scale);
     }
 
+    /** Extra-thick bold text for the big numbers (draws twice, slightly offset). */
+    private static void heavy(GuiGraphicsExtractor g, Font f, String s, float x, float y, int color, float scale) {
+        txt(g, f, s, x, y, color, scale, true, false);
+        txt(g, f, s, x + 0.35f * scale, y, color, scale, true, false);
+    }
+
     private static void txt(GuiGraphicsExtractor g, Font f, String s, float x, float y, int color, float scale, boolean bold, boolean shadow) {
         text(g, f, c(s, bold), x, y, color, scale, shadow);
     }
@@ -553,6 +605,12 @@ public class PnlHud {
         g.pose().scale(scale, scale);
         textA(g, f, comp, 0, 0, color, shadow);
         g.pose().popMatrix();
+    }
+
+    private static int spacedW(Font f, String s, float scale) {
+        int w = 0;
+        for (int i = 0; i < s.length(); i++) w += f.width(c(String.valueOf(s.charAt(i)), true)) + 1;
+        return (int) Math.ceil(w * scale);
     }
 
     /** Letter-spaced bold caps for headers. */
