@@ -37,6 +37,16 @@ public class PnlData {
     public Map<String, Double> rakeback = new HashMap<>();
     public boolean rbSeeded = false;
     public boolean rbVisible = true;
+    public boolean autoBal = true;             // quietly run /bal after rounded amounts to get the exact balance
+
+    public transient long syncDue = 0;         // when to run the quiet /bal
+
+    /** Rounded amounts like "4.3K" or "1.25B" aren't exact, so schedule a quiet /bal. */
+    private void checkRounded(String amt) {
+        if (amt != null && amt.matches(".*[KkMmBbTt].*")) syncDue = System.currentTimeMillis() + 1200;
+    }
+
+    public boolean isBalanceMessage(String raw) { return BALANCE.matcher(raw.trim()).find(); }
 
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("pnltracker.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -55,9 +65,9 @@ public class PnlData {
     public boolean handleMoney(String raw) {
         String msg = raw.trim();
         Matcher m;
-        if ((m = AH_SOLD.matcher(msg)).find())   { moveBalance(parseAmount(m.group(1)));  return true; }
-        if ((m = AH_BOUGHT.matcher(msg)).find()) { moveBalance(-parseAmount(m.group(1))); return true; }
-        if ((m = SOLD.matcher(msg)).find())      { moveBalance(parseAmount(m.group(1)));  return true; }
+        if ((m = AH_SOLD.matcher(msg)).find())   { moveBalance(parseAmount(m.group(1)));  checkRounded(m.group(1)); return true; }
+        if ((m = AH_BOUGHT.matcher(msg)).find()) { moveBalance(-parseAmount(m.group(1))); checkRounded(m.group(1)); return true; }
+        if ((m = SOLD.matcher(msg)).find())      { moveBalance(parseAmount(m.group(1)));  checkRounded(m.group(1)); return true; }
         return false;
     }
 
@@ -74,8 +84,8 @@ public class PnlData {
         if (handleMoney(raw)) return true;
         String msg = raw.trim();
         Matcher m;
-        if ((m = RECEIVED.matcher(msg)).find()) { add(m.group(1), parseAmount(m.group(2))); return true; }
-        if ((m = SENT.matcher(msg)).find())     { add(m.group(1), -parseAmount(m.group(2))); return true; }
+        if ((m = RECEIVED.matcher(msg)).find()) { add(m.group(1), parseAmount(m.group(2))); checkRounded(m.group(2)); return true; }
+        if ((m = SENT.matcher(msg)).find())     { add(m.group(1), -parseAmount(m.group(2))); checkRounded(m.group(2)); return true; }
         if ((m = BALANCE.matcher(msg)).find())  { balance = parseAmount(m.group(1)); save(); return true; }
         return false;
     }
