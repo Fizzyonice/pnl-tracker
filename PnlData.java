@@ -37,7 +37,6 @@ public class PnlData {
     public Map<String, Double> rakeback = new HashMap<>();
     public boolean rbSeeded = false;
     public boolean rbVisible = true;
-    public boolean autoBal = true;             // quietly run /bal after rounded amounts to get the exact balance
 
     public transient long syncDue = 0;         // when to run the quiet /bal
 
@@ -119,17 +118,17 @@ public class PnlData {
     }
 
     /** Drop payments older than 24h. */
+    /** Keeps every payment until you reset (only drops the oldest past 20,000 so the file stays small). */
     public void prune() {
-        long cutoff = System.currentTimeMillis() - DAY;
-        txs.removeIf(tx -> tx == null || tx.t < cutoff);
+        txs.removeIf(tx -> tx == null);
         while (txs.size() > 20000) txs.remove(0);
     }
 
     /** Payments in the last 24h, oldest first. */
+    /** All saved payments, oldest first (nothing expires on its own). */
     public List<Tx> window() {
-        long cutoff = System.currentTimeMillis() - DAY;
         List<Tx> out = new ArrayList<>();
-        for (Tx tx : txs) if (tx.t >= cutoff) out.add(tx);
+        for (Tx tx : txs) if (tx != null) out.add(tx);
         out.sort(Comparator.comparingLong(tx -> tx.t));
         return out;
     }

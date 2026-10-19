@@ -192,7 +192,7 @@ public class PnlHud {
                                    double in, double out, double profit,
                                    List<Map.Entry<String, Double>> winners, List<Map.Entry<String, Double>> losers,
                                    int listRows, int recentRows, int chartH, int boxH) {
-        header(g, f, d, x, cy, "24H PROFIT");
+        header(g, f, d, x, cy, "PROFIT");
         cy += 12;
 
         String big = PnlData.signed(profit);
