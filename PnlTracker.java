@@ -47,12 +47,30 @@ public class PnlTracker implements ClientModInitializer {
                         .append(Component.literal("  (/pnl reset, toggle, size 0.5-2, side left|right, rotate 0-60)").withStyle(ChatFormatting.GRAY)));
                     return 1;
                 })
-                .then(ClientCommands.literal("reset").executes(ctx -> { DATA.reset(); say(ctx, "PnL tracker reset."); return 1; })
+                .then(ClientCommands.literal("reset").executes(ctx -> {
+                        say(ctx, "This deletes ALL your history (profit, chart, bets, winners/losers, player nets). Type /pnl reset confirm to do it, or /pnl reset profit for just the profit.");
+                        return 1;
+                    })
+                    .then(ClientCommands.literal("confirm").executes(ctx -> {
+                        DATA.reset();
+                        say(ctx, "PnL tracker reset. Changed your mind? Type /pnl undo.");
+                        return 1;
+                    }))
                     .then(ClientCommands.literal("profit").executes(ctx -> {
                         DATA.resetProfit();
                         say(ctx, "24H profit and chart reset. Recent bets, winners/losers and rakeback kept.");
                         return 1;
                     })))
+                .then(ClientCommands.literal("undo").executes(ctx -> {
+                    int n = DATA.undo();
+                    say(ctx, n < 0 ? "No backup to undo." : "Brought back " + n + " payments from before your last reset.");
+                    return 1;
+                }))
+                .then(ClientCommands.literal("restore").executes(ctx -> {
+                    int n = DATA.restore();
+                    say(ctx, n < 0 ? "No pnltracker-restore.json found in your config folder." : "Restored " + n + " payments. Balance and rakeback kept.");
+                    return 1;
+                }))
                 .then(ClientCommands.literal("toggle").executes(ctx -> {
                     DATA.hudVisible = !DATA.hudVisible; DATA.save();
                     say(ctx, "PnL HUD " + (DATA.hudVisible ? "shown" : "hidden")); return 1;
@@ -75,7 +93,8 @@ public class PnlTracker implements ClientModInitializer {
                             say(ctx, DATA.rakebackReset(p) ? "Rakeback reset for " + p + "." : p + " isn't on the rakeback list.");
                             return 1;
                         })))
-                    .then(ClientCommands.literal("clear").executes(ctx -> { DATA.rakeback.clear(); DATA.save(); say(ctx, "Rakeback cleared for everyone."); return 1; }))
+                    .then(ClientCommands.literal("clear").executes(ctx -> { say(ctx, "This clears rakeback for EVERYONE. Type /pnl rakeback clear confirm to do it."); return 1; })
+                        .then(ClientCommands.literal("confirm").executes(ctx -> { DATA.clearRakeback(); say(ctx, "Rakeback cleared for everyone. Changed your mind? Type /pnl undo."); return 1; })))
                     .then(ClientCommands.literal("toggle").executes(ctx -> {
                         DATA.rbVisible = !DATA.rbVisible; DATA.save();
                         say(ctx, "Rakeback panel " + (DATA.rbVisible ? "shown" : "hidden")); return 1;

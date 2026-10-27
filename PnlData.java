@@ -48,6 +48,8 @@ public class PnlData {
     public boolean isBalanceMessage(String raw) { return BALANCE.matcher(raw.trim()).find(); }
 
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("pnltracker.json");
+    private static final Path BACKUP = FabricLoader.getInstance().getConfigDir().resolve("pnltracker-backup.json");
+    private static final Path RESTORE = FabricLoader.getInstance().getConfigDir().resolve("pnltracker-restore.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
     // DonutSMP formats. Anchored to the start of the line so players can't fake them in normal chat.
@@ -133,7 +135,64 @@ public class PnlData {
         return out;
     }
 
-    public void reset() { txs.clear(); profitStart = 0; save(); }
+    /** Saves a copy of everything before a big reset, so /pnl undo can bring it back. */
+    public void backup() {
+        try { Files.writeString(BACKUP, GSON.toJson(this)); }
+        catch (Exception e) { PnlTracker.LOG.warn("Couldn't write pnltracker-backup.json", e); }
+    }
+
+    public void reset() { backup(); txs.clear(); profitStart = 0; save(); }
+
+    public void clearRakeback() { backup(); rakeback.clear(); save(); }
+
+    /** Puts back history (and rakeback, if it was cleared) from the backup. Keeps payments made since. Returns payments added, or -1. */
+    public int undo() {
+        try {
+            if (!Files.exists(BACKUP)) return -1;
+            PnlData b = GSON.fromJson(Files.readString(BACKUP), PnlData.class);
+            if (b == null) return -1;
+            int added = mergeTxs(b.txs);
+            if (b.profitStart < profitStart || profitStart == 0) profitStart = b.profitStart;
+            if (rakeback.isEmpty() && b.rakeback != null) rakeback.putAll(b.rakeback);
+            save();
+            return added;
+        } catch (Exception e) {
+            PnlTracker.LOG.warn("Couldn't read pnltracker-backup.json", e);
+            return -1;
+        }
+    }
+
+    /** Adds history from config/pnltracker-restore.json. Keeps balance and rakeback. Returns payments added, or -1. */
+    public int restore() {
+        try {
+            if (!Files.exists(RESTORE)) return -1;
+            PnlData r = GSON.fromJson(Files.readString(RESTORE), PnlData.class);
+            if (r == null) return -1;
+            backup();
+            int added = mergeTxs(r.txs);
+            if (r.profitStart > 0) profitStart = r.profitStart;
+            save();
+            Files.move(RESTORE, RESTORE.resolveSibling("pnltracker-restore-used.json"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return added;
+        } catch (Exception e) {
+            PnlTracker.LOG.warn("Couldn't read pnltracker-restore.json", e);
+            return -1;
+        }
+    }
+
+    private int mergeTxs(List<Tx> extra) {
+        if (extra == null) return 0;
+        Set<String> have = new HashSet<>();
+        for (Tx tx : txs) if (tx != null) have.add(tx.t + "|" + tx.p + "|" + tx.a);
+        int added = 0;
+        for (Tx tx : extra) {
+            if (tx == null || tx.p == null) continue;
+            if (have.add(tx.t + "|" + tx.p + "|" + tx.a)) { txs.add(tx); added++; }
+        }
+        txs.sort(Comparator.comparingLong(tx -> tx.t));
+        prune();
+        return added;
+    }
 
     public void resetProfit() { profitStart = System.currentTimeMillis(); save(); }
 
