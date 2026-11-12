@@ -29,6 +29,52 @@ public class PnlData {
     public boolean hudVisible = true;
     public float hudScale = 1.0f;
     public boolean rightSide = true;
+    // ---- dashboard data ----
+    public static class BalPt { public long t; public double b; public BalPt() {} BalPt(long t, double b) { this.t = t; this.b = b; } }
+    public static class Session { public long start, end; public Session() {} Session(long s) { start = s; } }
+    public List<BalPt> balHist = new ArrayList<>();          // balance over time
+    public Map<String, Long> playMs = new HashMap<>();        // playtime per day, "2026-11-11" -> ms
+    public List<Session> sessions = new ArrayList<>();       // hosting sessions (end = 0 while running)
+
+    /** Remembers the balance after every change, for the balance chart. */
+    public void recordBalance() {
+        if (balance < 0) return;
+        if (balHist == null) balHist = new ArrayList<>();
+        long now = System.currentTimeMillis();
+        if (!balHist.isEmpty() && now - balHist.get(balHist.size() - 1).t < 2000) balHist.remove(balHist.size() - 1);
+        balHist.add(new BalPt(now, balance));
+        while (balHist.size() > 5000) balHist.remove(0);
+    }
+
+    public static String dayKey(long t) {
+        return java.time.Instant.ofEpochMilli(t).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString();
+    }
+
+    public void addPlaytime(long ms) {
+        if (playMs == null) playMs = new HashMap<>();
+        playMs.merge(dayKey(System.currentTimeMillis()), ms, Long::sum);
+    }
+
+    public long playtimeSince(long since) {
+        long total = 0;
+        if (playMs == null) return 0;
+        for (Map.Entry<String, Long> e : playMs.entrySet()) {
+            long dayStart = java.time.LocalDate.parse(e.getKey()).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+            if (dayStart + DAY > since) total += e.getValue();
+        }
+        return total;
+    }
+
+    public Session activeSession() {
+        if (sessions == null) sessions = new ArrayList<>();
+        for (Session s : sessions) if (s.end == 0) return s;
+        return null;
+    }
+
+    public void startSession() { if (activeSession() == null) { sessions.add(new Session(System.currentTimeMillis())); save(); } }
+
+    public void stopSession() { Session s = activeSession(); if (s != null) { s.end = System.currentTimeMillis(); save(); } }
+
     public long profitStart = 0;         // /pnl reset profit: chart + profit only count payments after this
     public int rotateSeconds = 7;        // 0 = stay on the profit page
 
@@ -37,6 +83,9 @@ public class PnlData {
     public Map<String, Double> rakeback = new HashMap<>();
     public boolean rbSeeded = false;
     public boolean rbVisible = true;
+    public boolean panelVisible = true;        // the switching Profit / Recent Bets / Player Nets panel
+    public boolean balVisible = true;          // the balance card in the bottom-right
+    public String displayName = "Fizzyonice";  // name shown on the dashboard
 
     public transient long syncDue = 0;         // when to run the quiet /bal
 
@@ -75,6 +124,7 @@ public class PnlData {
     private void moveBalance(double signed) {
         if (signed == 0) return;
         if (balance >= 0) balance += signed;
+        recordBalance();
         long now = System.currentTimeMillis();
         lastDelta = (now - lastDeltaAt < 6000) ? lastDelta + signed : signed;
         lastDeltaAt = now;
@@ -87,14 +137,14 @@ public class PnlData {
         Matcher m;
         if ((m = RECEIVED.matcher(msg)).find()) { add(m.group(1), parseAmount(m.group(2))); checkRounded(m.group(2)); return true; }
         if ((m = SENT.matcher(msg)).find())     { add(m.group(1), -parseAmount(m.group(2))); checkRounded(m.group(2)); return true; }
-        if ((m = BALANCE.matcher(msg)).find())  { balance = parseAmount(m.group(1)); save(); return true; }
+        if ((m = BALANCE.matcher(msg)).find())  { balance = parseAmount(m.group(1)); recordBalance(); save(); return true; }
         return false;
     }
 
     public void handleBalanceOnly(String raw) {
         if (handleMoney(raw)) return;
         Matcher m = BALANCE.matcher(raw.trim());
-        if (m.find()) { balance = parseAmount(m.group(1)); save(); }
+        if (m.find()) { balance = parseAmount(m.group(1)); recordBalance(); save(); }
     }
 
     // last balance change, for the +$200M / -$200M under the balance (not saved)
@@ -103,6 +153,7 @@ public class PnlData {
 
     private void add(String player, double signed) {
         if (balance >= 0) balance += signed;
+        recordBalance();
         long now = System.currentTimeMillis();
         lastDelta = (now - lastDeltaAt < 6000) ? lastDelta + signed : signed; // quick payments add together
         lastDeltaAt = now;
@@ -259,6 +310,9 @@ public class PnlData {
                     if (d.txs == null) d.txs = new ArrayList<>();
                     if (d.hudScale <= 0) d.hudScale = 1.0f;
                     if (d.rakeback == null) d.rakeback = new HashMap<>();
+                    if (d.balHist == null) d.balHist = new ArrayList<>();
+                    if (d.playMs == null) d.playMs = new HashMap<>();
+                    if (d.sessions == null) d.sessions = new ArrayList<>();
                     d.prune();
                     if (!d.rbSeeded) { // start rakeback from today's payments
                         for (Tx tx : d.window()) d.rakeback.merge(tx.p, tx.a, Double::sum);

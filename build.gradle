@@ -36,6 +36,11 @@ processResources {
         include 'bold.json', 'medium.json', 'poppins-bold.ttf', 'poppins-medium.ttf'
         into 'assets/pnltracker/font'
     }
+    // names shown in Options > Controls
+    from('.') {
+        include 'en_us.json'
+        into 'assets/pnltracker/lang'
+    }
 }
 
 java {

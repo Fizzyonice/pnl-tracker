@@ -36,7 +36,7 @@ public class PnlHud {
     private static Style BOLD, MED;
     private static boolean fontsTried;
 
-    private static void initFonts() {
+    static void initFonts() {
         if (fontsTried) return;
         fontsTried = true;
         BOLD = fontStyle("bold");
@@ -77,7 +77,7 @@ public class PnlHud {
         return null;
     }
 
-    private static Component c(String s, boolean bold) {
+    static Component c(String s, boolean bold) {
         MutableComponent m = Component.literal(s);
         Style st = bold ? BOLD : MED;
         if (st != null) m.setStyle(st);
@@ -168,23 +168,26 @@ public class PnlHud {
 
         int x = d.rightSide ? sw - W - M : M;
         int y = M;
-        panel(g, x, y, W, h, PANEL);
-        outline(g, x, y, W, h, OUTLINE);
+        if (d.panelVisible) {
+            panel(g, x, y, W, h, PANEL);
+            outline(g, x, y, W, h, OUTLINE);
 
-        ALPHA = fadeA;
-        if (page == 0) drawProfit(g, f, d, x, y + P, win, pwin, in, out, profit, winners, losers, listRows, recentRows, chartH, boxH);
-        else if (page == 1) drawBets(g, f, d, x, y + P, bets);
-        else drawNets(g, f, d, x, y + P, pnets);
-        ALPHA = 1f;
+            ALPHA = fadeA;
+            if (page == 0) drawProfit(g, f, d, x, y + P, win, pwin, in, out, profit, winners, losers, listRows, recentRows, chartH, boxH);
+            else if (page == 1) drawBets(g, f, d, x, y + P, bets);
+            else drawNets(g, f, d, x, y + P, pnets);
+            ALPHA = 1f;
 
-        if (rotating) footer(g, x, y + h - P - 4, page, (now % period) / (float) period);
+            if (rotating) footer(g, x, y + h - P - 4, page, (now % period) / (float) period);
+        }
 
         if (d.rbVisible) {
-            int rbx = d.rightSide ? x - RB_W - 6 : x + W + 6;
+            // sits next to the profit panel, or in its spot when that's turned off
+            int rbx = d.panelVisible ? (d.rightSide ? x - RB_W - 6 : x + W + 6) : (d.rightSide ? sw - RB_W - M : M);
             drawRakeback(g, f, d, rbx, y);
         }
 
-        balanceCard(g, f, d, mc.getUser().getName(), sw, sh);
+        if (d.balVisible) balanceCard(g, f, d, mc.getUser().getName(), sw, sh);
         g.pose().popMatrix();
     }
 
@@ -336,7 +339,7 @@ public class PnlHud {
         }
     }
 
-    private static int lerp(int a, int b, float t) {
+    static int lerp(int a, int b, float t) {
         int ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
         int br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
         int r = Math.round(ar + (br - ar) * t), gg = Math.round(ag + (bg - ag) * t), bl = Math.round(ab + (bb - ab) * t);
@@ -525,7 +528,7 @@ public class PnlHud {
     }
 
     // ---------- drawing helpers ----------
-    private static void panel(GuiGraphicsExtractor g, int x, int y, int w, int h, int col) {
+    static void panel(GuiGraphicsExtractor g, int x, int y, int w, int h, int col) {
         fillA(g, x + 3, y, x + w - 3, y + h, col);
         fillA(g, x, y + 3, x + 3, y + h - 3, col);
         fillA(g, x + w - 3, y + 3, x + w, y + h - 3, col);
@@ -536,7 +539,7 @@ public class PnlHud {
     }
 
     /** Smooth filled circle, drawn at quarter-pixel resolution. */
-    private static void circle(GuiGraphicsExtractor g, float cx, float cy, float r, int col) {
+    static void circle(GuiGraphicsExtractor g, float cx, float cy, float r, int col) {
         final int Q = 4;
         float R = r * Q, CX = cx * Q, CY = cy * Q;
         g.pose().pushMatrix();
@@ -551,7 +554,7 @@ public class PnlHud {
     }
 
     /** Smooth capsule ("sideways oval"), drawn at quarter-pixel resolution so the ends look round. */
-    private static void pill(GuiGraphicsExtractor g, float x, float y, float w, float h, int col) {
+    static void pill(GuiGraphicsExtractor g, float x, float y, float w, float h, int col) {
         final int Q = 4;
         int X = Math.round(x * Q), Y = Math.round(y * Q), Wd = Math.round(w * Q), H = Math.round(h * Q);
         float r = H / 2f;
@@ -566,7 +569,7 @@ public class PnlHud {
     }
 
     /** 1px rounded outline, drawn at half-pixel resolution so it looks thin. */
-    private static void outline(GuiGraphicsExtractor g, int x, int y, int w, int h, int col) {
+    static void outline(GuiGraphicsExtractor g, int x, int y, int w, int h, int col) {
         g.pose().pushMatrix();
         g.pose().scale(0.5f, 0.5f);
         int X = x * 2, Y = y * 2, Wd = w * 2, H = h * 2;

@@ -3,7 +3,11 @@ package com.fiizzyonice.pnltracker;
 import com.mojang.brigadier.arguments.FloatArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.minecraft.client.KeyMapping;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
@@ -18,6 +22,9 @@ import org.slf4j.LoggerFactory;
 public class PnlTracker implements ClientModInitializer {
     public static final Logger LOG = LoggerFactory.getLogger("pnltracker");
     public static PnlData DATA;
+    public static KeyMapping DASHBOARD_KEY;
+    private static boolean openDashboard = false;
+    private static long lastTick = 0, lastPlaySave = 0;
 
     private static void say(com.mojang.brigadier.context.CommandContext<net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource> ctx, String msg) {
         ctx.getSource().sendFeedback(Component.literal(msg).withStyle(ChatFormatting.LIGHT_PURPLE));
@@ -31,6 +38,23 @@ public class PnlTracker implements ClientModInitializer {
         ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
             if (!overlay) DATA.handle(message.getString());
             else DATA.handleBalanceOnly(message.getString()); // "/bal" also shows above the hotbar
+        });
+
+        // Dashboard key (J by default, change it in Options > Controls)
+        KeyMapping.Category category = KeyMapping.Category.register(Identifier.fromNamespaceAndPath("pnltracker", "pnltracker"));
+        DASHBOARD_KEY = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+                "key.pnltracker.dashboard", InputConstants.Type.KEYSYM, InputConstants.KEY_J, category));
+
+        ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            while (DASHBOARD_KEY.consumeClick()) openDashboard = true;
+            if (openDashboard && mc.screen == null) { openDashboard = false; mc.setScreen(new DashboardScreen()); }
+            else if (openDashboard && !(mc.screen instanceof net.minecraft.client.gui.screens.ChatScreen)) openDashboard = false;
+
+            // playtime: count time while you're in a world
+            long now = System.currentTimeMillis();
+            if (mc.player != null && lastTick > 0) DATA.addPlaytime(Math.min(1000, now - lastTick));
+            lastTick = now;
+            if (now - lastPlaySave > 60_000) { lastPlaySave = now; if (mc.player != null) DATA.save(); }
         });
 
         HudElementRegistry.attachElementAfter(VanillaHudElements.CHAT,
@@ -59,6 +83,14 @@ public class PnlTracker implements ClientModInitializer {
                     .then(ClientCommands.literal("profit").executes(ctx -> {
                         DATA.resetProfit();
                         say(ctx, "24H profit and chart reset. Recent bets, winners/losers and rakeback kept.");
+                        return 1;
+                    })))
+                .then(ClientCommands.literal("dashboard").executes(ctx -> { openDashboard = true; return 1; }))
+                .then(ClientCommands.literal("name")
+                    .then(ClientCommands.argument("name", StringArgumentType.greedyString()).executes(ctx -> {
+                        DATA.displayName = StringArgumentType.getString(ctx, "name").trim();
+                        DATA.save();
+                        say(ctx, "Dashboard name set to " + DATA.displayName + ".");
                         return 1;
                     })))
                 .then(ClientCommands.literal("undo").executes(ctx -> {
