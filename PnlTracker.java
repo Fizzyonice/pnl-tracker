@@ -50,6 +50,8 @@ public class PnlTracker implements ClientModInitializer {
             if (openDashboard && mc.screen == null) { openDashboard = false; mc.setScreen(new DashboardScreen()); }
             else if (openDashboard && !(mc.screen instanceof net.minecraft.client.gui.screens.ChatScreen)) openDashboard = false;
 
+            Auction.tick(DATA);
+
             // playtime: count time while you're in a world
             long now = System.currentTimeMillis();
             if (mc.player != null && lastTick > 0) DATA.addPlaytime(Math.min(1000, now - lastTick));

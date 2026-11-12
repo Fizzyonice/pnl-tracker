@@ -188,6 +188,7 @@ public class PnlHud {
         }
 
         if (d.balVisible) balanceCard(g, f, d, mc.getUser().getName(), sw, sh);
+        if (Auction.running() || Auction.endedWithin(20_000)) auctionWidget(g, f, d, sw);
         g.pose().popMatrix();
     }
 
@@ -536,6 +537,81 @@ public class PnlHud {
         fillA(g, x + w - 3, y + 1, x + w - 1, y + 3, col);
         fillA(g, x + 1, y + h - 3, x + 3, y + h - 1, col);
         fillA(g, x + w - 3, y + h - 3, x + w - 1, y + h - 1, col);
+    }
+
+    /** On-screen auction: label, circle timer with the item inside, and who's winning / who won. */
+    static void auctionWidget(GuiGraphicsExtractor g, Font f, PnlData d, int sw) {
+        boolean live = Auction.running();
+        long total = Math.max(1, Auction.endAt - Auction.startAt);
+        float prog = live ? Auction.remainingMs() / (float) total : 0f;
+        int col = d.aucColor;
+        float w = 168, h = 104, x = sw / 2f - w / 2f, y = 6;
+        panel(g, Math.round(x), Math.round(y), Math.round(w), Math.round(h), PANEL);
+        outline(g, Math.round(x), Math.round(y), Math.round(w), Math.round(h), (col & 0xFFFFFF) | 0x90000000);
+        String label = "AUCTION";
+        spaced(g, f, label, x + (w - spacedW(f, label, 0.72f)) / 2f, y + 6, col, 0.72f);
+        float cx = sw / 2f, cy = y + 46;
+        ring(g, cx, cy, 27, 23.5f, live ? prog : 1f, live ? col : (col & 0xFFFFFF) | 0x66000000, 0x26FFFFFF);
+        Items.Entry it = Items.get(Auction.itemId);
+        if (it != null) {
+            g.pose().pushMatrix();
+            g.pose().translate(cx - 12, cy - 17);
+            g.pose().scale(1.5f, 1.5f);
+            Items.draw(g, it.stack, 0, 0);
+            g.pose().popMatrix();
+        }
+        String t = live ? Auction.clock(Auction.remainingMs()) : "SOLD";
+        txt(g, f, t, cx - w(f, t, true, 0.72f) / 2f, cy + 9, WHITE, 0.72f, true, false);
+        Map.Entry<String, Double> lead = Auction.leader();
+        String line;
+        int lc;
+        if (live) { line = lead == null ? "Waiting for bids..." : lead.getKey() + "  " + PnlData.format(lead.getValue()); lc = lead == null ? LABEL : GREEN; }
+        else { line = lead == null ? "No bids" : lead.getKey() + " won the auction!"; lc = lead == null ? LABEL : GREEN; }
+        float lw = w(f, line, true, 0.78f);
+        txt(g, f, line, cx - lw / 2f, y + 80, lc, 0.78f, true, false);
+        if (!live && lead != null) {
+            String amt = PnlData.format(lead.getValue());
+            txt(g, f, amt, cx - w(f, amt, true, 0.7f) / 2f, y + 91, WHITE, 0.7f, true, false);
+        } else if (live && lead != null) {
+            String sub = "is winning";
+            txt(g, f, sub, cx - w(f, sub, false, 0.62f) / 2f, y + 91, LABEL, 0.62f, false, false);
+        }
+    }
+
+    /** Circle timer ring: the colored part shrinks clockwise from the top as time runs out. */
+    static void ring(GuiGraphicsExtractor g, float cx, float cy, float rOut, float rIn, float progress, int on, int off) {
+        final int Q = 4;
+        float R = rOut * Q, r = rIn * Q, CX = cx * Q, CY = cy * Q;
+        double limit = progress * Math.PI * 2;
+        g.pose().pushMatrix();
+        g.pose().scale(1f / Q, 1f / Q);
+        for (int yy = (int) Math.floor(CY - R); yy < Math.ceil(CY + R); yy++) {
+            float dy = yy + 0.5f - CY;
+            if (Math.abs(dy) >= R) continue;
+            float ho = (float) Math.sqrt(R * R - dy * dy);
+            float hi = Math.abs(dy) < r ? (float) Math.sqrt(r * r - dy * dy) : -1;
+            int[][] spans = hi < 0 ? new int[][]{{Math.round(CX - ho), Math.round(CX + ho)}}
+                    : new int[][]{{Math.round(CX - ho), Math.round(CX - hi)}, {Math.round(CX + hi), Math.round(CX + ho)}};
+            for (int[] sp : spans) {
+                int runStart = sp[0];
+                Boolean runOn = null;
+                for (int xx = sp[0]; xx <= sp[1]; xx++) {
+                    boolean isOn = false;
+                    if (xx < sp[1]) {
+                        double a = Math.atan2(xx + 0.5 - CX, -dy);
+                        if (a < 0) a += Math.PI * 2;
+                        isOn = a <= limit;
+                    }
+                    if (runOn == null) { runOn = isOn; runStart = xx; }
+                    else if (isOn != runOn || xx == sp[1]) {
+                        fillA(g, runStart, yy, xx, yy + 1, runOn ? on : off);
+                        runOn = isOn;
+                        runStart = xx;
+                    }
+                }
+            }
+        }
+        g.pose().popMatrix();
     }
 
     /** Smooth filled circle, drawn at quarter-pixel resolution. */

@@ -87,6 +87,14 @@ public class PnlData {
     public boolean balVisible = true;          // the balance card in the bottom-right
     public String displayName = "Fizzyonice";  // name shown on the dashboard
 
+    // ---- auctions ----
+    public static class AucResult { public long t; public String item = "", winner = ""; public double amount; public int bidders; }
+    public int aucColor = 0xFFF0B03C;          // timer color
+    public int aucSeconds = 30;                // timer length
+    public boolean aucMode = true;             // payments during an auction count as bids (not gambles)
+    public String aucItem = "minecraft:diamond";
+    public List<AucResult> aucHistory = new ArrayList<>();
+
     public transient long syncDue = 0;         // when to run the quiet /bal
 
     /** Rounded amounts like "4.3K" or "1.25B" aren't exact, so schedule a quiet /bal. */
@@ -122,7 +130,7 @@ public class PnlData {
     }
 
     private void moveBalance(double signed) {
-        if (signed == 0) return;
+        if (signed == 0 || !balVisible) return;
         if (balance >= 0) balance += signed;
         recordBalance();
         long now = System.currentTimeMillis();
@@ -137,14 +145,14 @@ public class PnlData {
         Matcher m;
         if ((m = RECEIVED.matcher(msg)).find()) { add(m.group(1), parseAmount(m.group(2))); checkRounded(m.group(2)); return true; }
         if ((m = SENT.matcher(msg)).find())     { add(m.group(1), -parseAmount(m.group(2))); checkRounded(m.group(2)); return true; }
-        if ((m = BALANCE.matcher(msg)).find())  { balance = parseAmount(m.group(1)); recordBalance(); save(); return true; }
+        if ((m = BALANCE.matcher(msg)).find())  { if (balVisible) { balance = parseAmount(m.group(1)); recordBalance(); save(); } return true; }
         return false;
     }
 
     public void handleBalanceOnly(String raw) {
         if (handleMoney(raw)) return;
         Matcher m = BALANCE.matcher(raw.trim());
-        if (m.find()) { balance = parseAmount(m.group(1)); recordBalance(); save(); }
+        if (m.find() && balVisible) { balance = parseAmount(m.group(1)); recordBalance(); save(); }
     }
 
     // last balance change, for the +$200M / -$200M under the balance (not saved)
@@ -152,21 +160,35 @@ public class PnlData {
     public transient long lastDeltaAt = 0;
 
     private void add(String player, double signed) {
-        if (balance >= 0) balance += signed;
-        recordBalance();
-        long now = System.currentTimeMillis();
-        lastDelta = (now - lastDeltaAt < 6000) ? lastDelta + signed : signed; // quick payments add together
-        lastDeltaAt = now;
-        double cur = rakeback.getOrDefault(player, 0.0);
+        // balance (only while the Balance switch is on)
+        if (balVisible) {
+            if (balance >= 0) balance += signed;
+            recordBalance();
+            long now = System.currentTimeMillis();
+            lastDelta = (now - lastDeltaAt < 6000) ? lastDelta + signed : signed; // quick payments add together
+            lastDeltaAt = now;
+        }
+        // auctions: bids while an auction runs, refunds to losing bidders after
+        if (aucMode) {
+            if (signed > 0 && Auction.bid(player, signed)) { save(); return; }
+            if (signed < 0 && Auction.refund(player, -signed)) { save(); return; }
+        }
+        // rakeback (only while the Rakeback switch is on)
         boolean claim = false;
-        if (signed > 0) cur += signed;                                   // they lost a bet to you
-        else if (cur >= RB_LIMIT && isRakebackAmount(-signed, cur)) { cur = 0; claim = true; } // you paid their rakeback
-        else cur += signed;                                              // you paid out a win, so they're less down
-        if (cur <= 0) rakeback.remove(player); else rakeback.put(player, cur);
-        Tx tx = new Tx(System.currentTimeMillis(), player, signed);
-        tx.rb = claim;
-        txs.add(tx);
-        prune();
+        if (rbVisible) {
+            double cur = rakeback.getOrDefault(player, 0.0);
+            if (signed > 0) cur += signed;                                   // they lost a bet to you
+            else if (cur >= RB_LIMIT && isRakebackAmount(-signed, cur)) { cur = 0; claim = true; } // you paid their rakeback
+            else cur += signed;                                              // you paid out a win, so they're less down
+            if (cur <= 0) rakeback.remove(player); else rakeback.put(player, cur);
+        }
+        // profit / bets / winners / player nets (only while the Profit tracker switch is on)
+        if (panelVisible) {
+            Tx tx = new Tx(System.currentTimeMillis(), player, signed);
+            tx.rb = claim;
+            txs.add(tx);
+            prune();
+        }
         save();
     }
 
@@ -313,6 +335,9 @@ public class PnlData {
                     if (d.balHist == null) d.balHist = new ArrayList<>();
                     if (d.playMs == null) d.playMs = new HashMap<>();
                     if (d.sessions == null) d.sessions = new ArrayList<>();
+                    if (d.aucHistory == null) d.aucHistory = new ArrayList<>();
+                    if (d.aucItem == null) d.aucItem = "minecraft:diamond";
+                    if (d.aucSeconds <= 0) d.aucSeconds = 30;
                     d.prune();
                     if (!d.rbSeeded) { // start rakeback from today's payments
                         for (Tx tx : d.window()) d.rakeback.merge(tx.p, tx.a, Double::sum);

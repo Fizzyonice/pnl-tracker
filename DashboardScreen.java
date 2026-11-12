@@ -46,6 +46,8 @@ public class DashboardScreen extends Screen {
     private static int selectedSession = -1; // index into sessions, -1 = current/latest
 
     private boolean searchFocused = false;
+    private boolean aucFocused = false;
+    private static String aucSearch = "";
     private float scale = 1f;
     private int ox = 0, oy = 0;
     private final Map<String, Float> scroll = new HashMap<>();
@@ -92,6 +94,7 @@ public class DashboardScreen extends Screen {
             case 1 -> winLoss(g, d);
             case 2 -> rakeback(g, d);
             case 3 -> sessions(g, d);
+            case 4 -> auctions(g, d);
             default -> panels(g, d);
         }
 
@@ -110,10 +113,11 @@ public class DashboardScreen extends Screen {
         spaced(g, "DASHBOARD", 34, 13, TEXT, 0.8f);
         txt(g, "v1.0", 112, 13.5f, DIM, 0.7f, false);
         pillBox(g, 140, 9, 66, 16, 0x00000000, EDGE);
-        PnlHud.circle(g, 150, 17, 2.4f, GREEN);
-        spaced(g, "DATA LIVE", 157, 13.5f, MUTED, 0.6f);
+        boolean liveData = PnlTracker.DATA != null && PnlTracker.DATA.panelVisible;
+        PnlHud.circle(g, 150, 17, 2.4f, liveData ? GREEN : AMBER);
+        spaced(g, liveData ? "DATA LIVE" : "PAUSED", 157, 13.5f, MUTED, 0.6f);
 
-        String[] tabs = {"OVERVIEW", "WIN / LOSS", "RAKEBACK", "SESSIONS", "PROFIT PANEL"};
+        String[] tabs = {"OVERVIEW", "WIN / LOSS", "RAKEBACK", "SESSIONS", "AUCTIONS", "PROFIT PANEL"};
         float tx = 226;
         for (int i = 0; i < tabs.length; i++) {
             float w = spacedW(tabs[i], 0.66f) + 18;
@@ -123,7 +127,7 @@ public class DashboardScreen extends Screen {
             else if (hover) roundedF(g, tx, 9, w, 17, 3, CARD_HI);
             spaced(g, tabs[i], tx + 9, 14, on ? TEXT : MUTED, 0.66f);
             final int idx = i;
-            hits.add(new Hit(tx, 9, w, 17, () -> { tab = idx; searchFocused = false; }));
+            hits.add(new Hit(tx, 9, w, 17, () -> { tab = idx; searchFocused = false; aucFocused = false; }));
             tx += w + 4;
         }
 
@@ -138,7 +142,6 @@ public class DashboardScreen extends Screen {
             final int idx = i;
             hits.add(new Hit(rx + i * 34, 10, 32, 15, () -> range = idx));
         }
-        txt(g, "ESC close", rx - 60, 14, DIM, 0.62f, false);
     }
 
     // =====================================================================
@@ -504,17 +507,200 @@ public class DashboardScreen extends Screen {
     }
 
     // =====================================================================
+    // AUCTIONS
+    // =====================================================================
+    static final int[] AUC_COLORS = {0xFFF0B03C, 0xFF9B7BFF, 0xFF3FE08A, 0xFFFF5A72, 0xFF5B9BFF, 0xFFF29BCB, 0xFF3FD8E0, 0xFFF1F2F8};
+    static final int[] AUC_TIMES = {15, 30, 45, 60, 120, 300};
+
+    private void auctions(GuiGraphicsExtractor g, PnlData d) {
+        txt(g, "Auctions", 20, 46, TEXT, 1.4f, true);
+        txt(g, "Pick an item, set the timer and start. Whoever pays you the most before it hits 0 wins.", 20, 66, MUTED, 0.68f, false);
+        boolean live = Auction.running();
+        boolean recent = Auction.endedWithin(20 * 60_000L);
+        int col = d.aucColor;
+
+        // ----- timer card -----
+        float lx = 20, lw = 410, cy0 = 84, ch = 250;
+        rounded(g, lx, cy0, lw, ch, 6, CARD);
+        border(g, lx, cy0, lw, ch, EDGE);
+        String label = "AUCTIONS";
+        spaced(g, label, lx + (lw - spacedW(label, 0.9f)) / 2f, cy0 + 12, col, 0.9f);
+        float ccx = lx + lw / 2f, ccy = cy0 + 118;
+        long total = Math.max(1, Auction.endAt - Auction.startAt);
+        float prog = live ? Auction.remainingMs() / (float) total : 1f;
+        PnlHud.circle(g, ccx, ccy, 70, 0xFF0C0E19);
+        PnlHud.ring(g, ccx, ccy, 82, 72, prog, live ? col : (recent ? (col & 0xFFFFFF) | 0x66000000 : col), 0x22FFFFFF);
+        String showId = live || recent ? Auction.itemId : d.aucItem;
+        Items.Entry it = Items.get(showId);
+        if (it != null) {
+            g.pose().pushMatrix();
+            g.pose().translate(ccx - 26, ccy - 40);
+            g.pose().scale(3.25f, 3.25f);
+            Items.draw(g, it.stack, 0, 0);
+            g.pose().popMatrix();
+        }
+        String clock = live ? Auction.clock(Auction.remainingMs()) : recent ? "SOLD" : Auction.clock(d.aucSeconds * 1000L);
+        txt(g, clock, ccx - w(clock, true, 1.5f) / 2f, ccy + 20, TEXT, 1.5f, true);
+        String nm = it == null ? "No item picked" : it.name;
+        txt(g, nm, ccx - w(nm, false, 0.62f) / 2f, ccy + 40, MUTED, 0.62f, false);
+        Map.Entry<String, Double> lead = Auction.leader();
+        String status;
+        int sc;
+        if (live) { status = lead == null ? (d.aucMode ? "Waiting for bids..." : "Auction switch is off: payments aren't counted as bids") : lead.getKey() + " is winning  \u00B7  " + PnlData.format(lead.getValue()); sc = lead == null ? MUTED : GREEN; }
+        else if (recent) { status = lead == null ? "Ended with no bids" : lead.getKey() + " won the auction!  \u00B7  " + PnlData.format(lead.getValue()); sc = lead == null ? MUTED : GREEN; }
+        else { status = "Ready when you are"; sc = MUTED; }
+        txt(g, status, ccx - w(status, true, 0.8f) / 2f, cy0 + ch - 20, sc, 0.8f, true);
+
+        // ----- controls -----
+        float y = cy0 + ch + 10;
+        String btn = live ? "END NOW" : "START AUCTION";
+        float bw = spacedW(btn, 0.72f) + 34;
+        boolean hover = in(lx, y, bw, 26);
+        int bcol = live ? (hover ? 0xFFFF6E83 : RED) : (hover ? 0xFF8F6CFF : PURPLE_D);
+        roundedF(g, lx, y, bw, 26, 4, bcol);
+        if (live) roundedF(g, lx + 12, y + 9, 8, 8, 1, TEXT); else triangle(g, lx + 13, y + 8.5f, 9, TEXT);
+        spaced(g, btn, lx + 26, y + 9.5f, TEXT, 0.72f);
+        hits.add(new Hit(lx, y, bw, 26, () -> {
+            if (Auction.running()) Auction.stop();
+            else if (Items.get(PnlTracker.DATA.aucItem) != null) Auction.start(PnlTracker.DATA.aucItem, PnlTracker.DATA.aucSeconds);
+        }));
+        if (live || recent) {
+            String cl = live ? "Cancel (no winner)" : "Clear";
+            float cx = lx + bw + 12;
+            txt(g, cl, cx, y + 9, MUTED, 0.7f, true);
+            hits.add(new Hit(cx, y + 3, w(cl, true, 0.7f), 20, Auction::cancel));
+        }
+        // timer length
+        float tx = lx + lw;
+        for (int i = AUC_TIMES.length - 1; i >= 0; i--) {
+            int sec = AUC_TIMES[i];
+            String t = sec < 60 ? sec + "s" : (sec / 60) + "m";
+            float tw = w(t, true, 0.66f) + 14;
+            tx -= tw + 3;
+            boolean on = d.aucSeconds == sec;
+            roundedF(g, tx, y + 5, tw, 17, 3, on ? PURPLE_D : CARD_HI);
+            txt(g, t, tx + 7, y + 9.5f, on ? TEXT : MUTED, 0.66f, true);
+            hits.add(new Hit(tx, y + 5, tw, 17, () -> { if (!Auction.running()) { PnlTracker.DATA.aucSeconds = sec; PnlTracker.DATA.save(); } }));
+        }
+        // timer color
+        y += 34;
+        spaced(g, "TIMER COLOR", lx, y + 5, DIM, 0.6f);
+        float sx = lx + 76;
+        for (int c : AUC_COLORS) {
+            boolean on = d.aucColor == c;
+            if (on) PnlHud.circle(g, sx + 7, y + 8, 8.5f, TEXT);
+            PnlHud.circle(g, sx + 7, y + 8, 7, c);
+            hits.add(new Hit(sx, y, 14, 16, () -> { PnlTracker.DATA.aucColor = c; PnlTracker.DATA.save(); }));
+            sx += 22;
+        }
+        // auction switch
+        y += 26;
+        float rw = lw, rh = 44;
+        rounded(g, lx, y, rw, rh, 5, CARD);
+        border(g, lx, y, rw, rh, d.aucMode ? 0xFF3B2C7A : EDGE);
+        txt(g, "Auction switch", lx + 14, y + 9, TEXT, 0.85f, true);
+        txt(g, "On: while an auction runs, money paid to you counts as bids, not bets.", lx + 14, y + 24, MUTED, 0.6f, false);
+        float swx = lx + rw - 14 - 36, swy = y + (rh - 18) / 2f;
+        roundedF(g, swx, swy, 36, 18, 9, d.aucMode ? PURPLE_D : 0xFF2A2D40);
+        PnlHud.circle(g, d.aucMode ? swx + 27 : swx + 9, swy + 9, 6, TEXT);
+        hits.add(new Hit(lx, y, rw, rh, () -> { PnlTracker.DATA.aucMode = !PnlTracker.DATA.aucMode; PnlTracker.DATA.save(); }));
+        // bids / last results
+        y += rh + 8;
+        float bh = VH - 20 - y;
+        rounded(g, lx, y, lw, bh, 5, CARD);
+        border(g, lx, y, lw, bh, EDGE);
+        if (live || (recent && !Auction.bids.isEmpty())) {
+            spaced(g, "BIDS", lx + 12, y + 8, TEXT, 0.62f);
+            List<Map.Entry<String, Double>> bl = new ArrayList<>(Auction.bids.entrySet());
+            bl.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+            float ry = y + 20;
+            if (bl.isEmpty()) txt(g, "No bids yet", lx + 12, ry, DIM, 0.68f, false);
+            for (int i = 0; i < Math.min(3, bl.size()); i++) {
+                avatar(g, bl.get(i).getKey(), lx + 19, ry + 5, 6);
+                txt(g, bl.get(i).getKey(), lx + 30, ry, i == 0 ? TEXT : MUTED, 0.72f, true);
+                String a = PnlData.format(bl.get(i).getValue());
+                txt(g, a, lx + lw - 12 - w(a, true, 0.72f), ry, i == 0 ? GREEN : MUTED, 0.72f, true);
+                ry += 12;
+            }
+        } else {
+            spaced(g, "LAST AUCTIONS", lx + 12, y + 8, TEXT, 0.62f);
+            float ry = y + 20;
+            if (d.aucHistory.isEmpty()) txt(g, "Your finished auctions will show up here", lx + 12, ry, DIM, 0.68f, false);
+            for (int i = d.aucHistory.size() - 1, n = 0; i >= 0 && n < 3; i--, n++) {
+                PnlData.AucResult r = d.aucHistory.get(i);
+                Items.Entry ri = Items.get(r.item);
+                String left = (ri == null ? r.item : ri.name) + "  \u2192  " + (r.winner.isEmpty() ? "no bids" : r.winner);
+                txt(g, trim(left, true, 0.68f, lw - 110), lx + 12, ry, TEXT, 0.68f, true);
+                String a = r.winner.isEmpty() ? "-" : PnlData.format(r.amount);
+                txt(g, a, lx + lw - 12 - w(a, true, 0.68f), ry, r.winner.isEmpty() ? DIM : GREEN, 0.68f, true);
+                ry += 12;
+            }
+        }
+
+        // ----- item picker -----
+        float px = 440, pw = VW - 20 - px, py = 84, ph = VH - 20 - py;
+        rounded(g, px, py, pw, ph, 6, CARD);
+        border(g, px, py, pw, ph, EDGE);
+        spaced(g, "PICK AN ITEM", px + 14, py + 13, TEXT, 0.66f);
+        Items.Entry sel = Items.get(d.aucItem);
+        if (sel != null) {
+            String sn = sel.name;
+            txt(g, sn, px + pw - 14 - w(sn, true, 0.74f), py + 12, col, 0.74f, true);
+        }
+        float sbx = px + 14, sby = py + 28, sbw = pw - 28, sbh = 22;
+        rounded(g, sbx, sby, sbw, sbh, 4, aucFocused ? CARD_HI : 0xFF0C0E19);
+        border(g, sbx, sby, sbw, sbh, aucFocused ? PURPLE_D : EDGE);
+        searchIcon(g, sbx + 12, sby + 11);
+        boolean caret = aucFocused && (System.currentTimeMillis() / 500) % 2 == 0;
+        if (aucSearch.isEmpty() && !aucFocused) txt(g, "Search every item and block...", sbx + 24, sby + 7, DIM, 0.72f, false);
+        else txt(g, aucSearch + (caret ? "|" : ""), sbx + 24, sby + 7, TEXT, 0.72f, false);
+        hits.add(new Hit(sbx, sby, sbw, sbh, () -> aucFocused = true));
+
+        List<Items.Entry> found = Items.search(aucSearch);
+        float gx0 = px + 14, gy0 = sby + sbh + 10, tile = 40, gap = 5;
+        int cols = (int) ((pw - 28 + gap) / (tile + gap));
+        int rowsVis = (int) ((py + ph - 26 - gy0 + gap) / (tile + gap));
+        int rowsAll = (found.size() + cols - 1) / cols;
+        int firstRow = scrollIndex("items", rowsAll, rowsVis, px, gy0, pw, rowsVis * (tile + gap));
+        String hoverName = null;
+        if (found.isEmpty()) txt(g, Items.all().isEmpty() ? "Items load when you're in a world" : "Nothing matches \"" + aucSearch + "\"", gx0, gy0 + 4, DIM, 0.75f, false);
+        for (int r = 0; r < rowsVis; r++) {
+            for (int c = 0; c < cols; c++) {
+                int idx = (firstRow + r) * cols + c;
+                if (idx >= found.size()) break;
+                Items.Entry e = found.get(idx);
+                float tx2 = gx0 + c * (tile + gap), ty2 = gy0 + r * (tile + gap);
+                boolean isSel = e.id.equals(d.aucItem);
+                boolean hov = in(tx2, ty2, tile, tile);
+                if (hov) hoverName = e.name;
+                rounded(g, tx2, ty2, tile, tile, 5, isSel ? CARD_HI : hov ? 0xFF161A2B : 0xFF0E1120);
+                if (isSel) border(g, tx2, ty2, tile, tile, col);
+                g.pose().pushMatrix();
+                g.pose().translate(tx2 + (tile - 24) / 2f, ty2 + (tile - 24) / 2f);
+                g.pose().scale(1.5f, 1.5f);
+                Items.draw(g, e.stack, 0, 0);
+                g.pose().popMatrix();
+                final String id = e.id;
+                hits.add(new Hit(tx2, ty2, tile, tile, () -> { if (!Auction.running()) { PnlTracker.DATA.aucItem = id; PnlTracker.DATA.save(); } }));
+            }
+        }
+        scrollBar(g, px + pw - 7, gy0, rowsVis * (tile + gap), "items", rowsAll, rowsVis);
+        String foot = hoverName != null ? hoverName : found.size() + " items";
+        txt(g, foot, px + 14, py + ph - 16, hoverName != null ? TEXT : DIM, 0.7f, hoverName != null);
+    }
+
+    // =====================================================================
     // PROFIT PANEL (on-screen panel switches)
     // =====================================================================
     private void panels(GuiGraphicsExtractor g, PnlData d) {
         txt(g, "Profit Panel", 20, 46, TEXT, 1.4f, true);
-        txt(g, "Turn each panel on your screen on or off. Your stats keep tracking either way.", 20, 66, MUTED, 0.68f, false);
+        txt(g, "Turn each one on or off. When it's off it disappears from your screen and stops tracking until you turn it back on.", 20, 66, MUTED, 0.68f, false);
         float y = 90;
-        y = toggleRow(g, y, "Profit tracker", "The switching panel: Profit chart, Recent Bets and Player Nets.", d.panelVisible,
+        y = toggleRow(g, y, "Profit tracker", "Profit chart, Recent Bets and Player Nets. Off = payments aren't recorded at all.", d.panelVisible,
                 () -> { PnlTracker.DATA.panelVisible = !PnlTracker.DATA.panelVisible; PnlTracker.DATA.save(); });
-        y = toggleRow(g, y, "Rakeback", "The Rakeback panel with the top 6 players closest to " + PnlData.shortFmt(PnlData.RB_LIMIT) + ".", d.rbVisible,
+        y = toggleRow(g, y, "Rakeback", "Rakeback panel (top 6 closest to " + PnlData.shortFmt(PnlData.RB_LIMIT) + "). Off = rakeback stops counting.", d.rbVisible,
                 () -> { PnlTracker.DATA.rbVisible = !PnlTracker.DATA.rbVisible; PnlTracker.DATA.save(); });
-        toggleRow(g, y, "Balance", "Your name and full balance in the bottom-right corner.", d.balVisible,
+        toggleRow(g, y, "Balance", "Your balance in the bottom-right. Off = it stops updating; type /bal after turning it back on.", d.balVisible,
                 () -> { PnlTracker.DATA.balVisible = !PnlTracker.DATA.balVisible; PnlTracker.DATA.save(); });
     }
 
@@ -734,15 +920,40 @@ public class DashboardScreen extends Screen {
         return entityMethod != null;
     }
 
-    /** The game's real 3D player, looking straight ahead (mouse held at its face so it faces the front). */
+    private static java.lang.reflect.Method scissorOn, scissorOff;
+    private static boolean scissorTried;
+
+    /** The game's real 3D player, looking straight ahead, cut off at the bottom of the welcome strip (so it stands behind the cards). */
     private void drawEntity(GuiGraphicsExtractor g, float[] a) {
-        int x1 = Math.round(ox + a[0] * scale), y1 = Math.round(oy + a[1] * scale);
-        int x2 = Math.round(ox + (a[0] + a[2]) * scale), y2 = Math.round(oy + (a[1] + a[3]) * scale);
-        int size = Math.round((y2 - y1) * 0.62f);
+        if (!scissorTried) {
+            scissorTried = true;
+            for (java.lang.reflect.Method m : GuiGraphicsExtractor.class.getMethods()) {
+                String n = m.getName().toLowerCase(Locale.ROOT);
+                if (!n.contains("scissor")) continue;
+                Class<?>[] p = m.getParameterTypes();
+                if (n.contains("enable") && p.length == 4 && p[0] == int.class) scissorOn = m;
+                if (n.contains("disable") && p.length == 0) scissorOff = m;
+            }
+        }
+        float stripTop = 44, stripBottom = 118;
+        int x1 = Math.round(ox + a[0] * scale), x2 = Math.round(ox + (a[0] + a[2]) * scale);
+        int top = Math.round(oy + stripTop * scale), bottom = Math.round(oy + stripBottom * scale);
         try {
-            float lookX = (x1 + x2) / 2f, lookY = y1 + (y2 - y1) * 0.30f;
-            entityMethod.invoke(null, g, x1, y1, x2, y2 + Math.round(size * 0.9f), size, 0.0625f, lookX, lookY, Minecraft.getInstance().player);
+            if (scissorOn != null && scissorOff != null) {
+                // big model (head to waist fills the strip); the legs hang below and get cut off
+                int fullH = Math.round((bottom - top) * 1.62f);
+                int y1 = top + 2, y2 = y1 + fullH;
+                int size = Math.round(fullH / 2.05f);
+                scissorOn.invoke(g, x1 - 20, top, x2 + 20, bottom);
+                entityMethod.invoke(null, g, x1 - 20, y1, x2 + 20, y2, size, 0.0625f, (x1 + x2) / 2f, y1 + fullH * 0.15f, Minecraft.getInstance().player);
+                scissorOff.invoke(g);
+            } else {
+                // can't cut it off on this version: draw the whole player small enough to fit inside the strip
+                int size = Math.round((bottom - top) / 2.2f);
+                entityMethod.invoke(null, g, x1, top, x2, bottom, size, 0.0625f, (x1 + x2) / 2f, top + (bottom - top) * 0.2f, Minecraft.getInstance().player);
+            }
         } catch (Throwable t) {
+            try { if (scissorOff != null) scissorOff.invoke(g); } catch (Throwable ignored) {}
             entityFailed = true;
             entityMethod = null;
         }
@@ -774,8 +985,9 @@ public class DashboardScreen extends Screen {
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         float vx = (float) ((event.x() - ox) / scale), vy = (float) ((event.y() - oy) / scale);
-        boolean wasFocused = searchFocused;
+        boolean wasFocused = searchFocused || aucFocused;
         searchFocused = false;
+        aucFocused = false;
         for (int i = hits.size() - 1; i >= 0; i--) {
             Hit h = hits.get(i);
             if (vx >= h.x() && vx <= h.x() + h.w() && vy >= h.y() && vy <= h.y() + h.h()) {
@@ -802,11 +1014,12 @@ public class DashboardScreen extends Screen {
 
     @Override
     public boolean charTyped(CharacterEvent event) {
-        if (!searchFocused) return super.charTyped(event);
+        if (!searchFocused && !aucFocused) return super.charTyped(event);
         int cp = event.codepoint();
-        if (cp >= 32 && cp != 127 && search.length() < 24) {
-            search += new String(Character.toChars(cp));
-            scroll.put("wl", 0f);
+        if (cp >= 32 && cp != 127) {
+            String add = new String(Character.toChars(cp));
+            if (searchFocused && search.length() < 24) { search += add; scroll.put("wl", 0f); }
+            if (aucFocused && aucSearch.length() < 32) { aucSearch += add; scroll.put("items", 0f); }
         }
         return true;
     }
@@ -814,14 +1027,16 @@ public class DashboardScreen extends Screen {
     @Override
     public boolean keyPressed(KeyEvent event) {
         int key = event.key();
-        if (searchFocused) {
-            if (key == 256) { searchFocused = false; return true; }                 // Esc: leave the search box
+        if (searchFocused || aucFocused) {
+            if (key == 256) { searchFocused = false; aucFocused = false; return true; } // Esc: leave the search box
             if (key == 259) {                                                          // Backspace
-                if (!search.isEmpty()) search = search.substring(0, search.length() - 1);
+                if (searchFocused && !search.isEmpty()) search = search.substring(0, search.length() - 1);
+                if (aucFocused && !aucSearch.isEmpty()) aucSearch = aucSearch.substring(0, aucSearch.length() - 1);
                 scroll.put("wl", 0f);
+                scroll.put("items", 0f);
                 return true;
             }
-            if (key == 257 || key == 335) { searchFocused = false; return true; }    // Enter
+            if (key == 257 || key == 335) { searchFocused = false; aucFocused = false; return true; } // Enter
             return true; // swallow other keys while typing (so letters don't trigger keybinds)
         }
         if (PnlTracker.DASHBOARD_KEY != null && PnlTracker.DASHBOARD_KEY.matches(event)) { onClose(); return true; }
