@@ -545,12 +545,16 @@ public class PnlHud {
         long total = Math.max(1, Auction.endAt - Auction.startAt);
         float prog = live ? Auction.remainingMs() / (float) total : 0f;
         int col = d.aucColor;
-        float w = 168, h = 104, x = sw / 2f - w / 2f, y = 6;
+        float w = 176, h = 114, x = sw / 2f - w / 2f, y = 6;
         panel(g, Math.round(x), Math.round(y), Math.round(w), Math.round(h), PANEL);
         outline(g, Math.round(x), Math.round(y), Math.round(w), Math.round(h), (col & 0xFFFFFF) | 0x90000000);
         String label = "AUCTION";
-        spaced(g, f, label, x + (w - spacedW(f, label, 0.72f)) / 2f, y + 6, col, 0.72f);
-        float cx = sw / 2f, cy = y + 46;
+        spaced(g, f, label, x + (w - spacedW(f, label, 0.72f)) / 2f, y + 5, col, 0.72f);
+        String what = Auction.label(Auction.itemId, Auction.name, Auction.qty);
+        float ww = w(f, what, true, 0.66f);
+        if (ww > w - 16) { what = what.substring(0, Math.max(1, (int) (what.length() * (w - 24) / ww))) + ".."; ww = w(f, what, true, 0.66f); }
+        txt(g, f, what, sw / 2f - ww / 2f, y + 14, WHITE, 0.66f, true, false);
+        float cx = sw / 2f, cy = y + 54;
         ring(g, cx, cy, 27, 23.5f, live ? prog : 1f, live ? col : (col & 0xFFFFFF) | 0x66000000, 0x26FFFFFF);
         Items.Entry it = Items.get(Auction.itemId);
         if (it != null) {
@@ -568,13 +572,13 @@ public class PnlHud {
         if (live) { line = lead == null ? "Waiting for bids..." : lead.getKey() + "  " + PnlData.format(lead.getValue()); lc = lead == null ? LABEL : GREEN; }
         else { line = lead == null ? "No bids" : lead.getKey() + " won the auction!"; lc = lead == null ? LABEL : GREEN; }
         float lw = w(f, line, true, 0.78f);
-        txt(g, f, line, cx - lw / 2f, y + 80, lc, 0.78f, true, false);
+        txt(g, f, line, cx - lw / 2f, y + 88, lc, 0.78f, true, false);
         if (!live && lead != null) {
             String amt = PnlData.format(lead.getValue());
-            txt(g, f, amt, cx - w(f, amt, true, 0.7f) / 2f, y + 91, WHITE, 0.7f, true, false);
+            txt(g, f, amt, cx - w(f, amt, true, 0.7f) / 2f, y + 99, WHITE, 0.7f, true, false);
         } else if (live && lead != null) {
             String sub = "is winning";
-            txt(g, f, sub, cx - w(f, sub, false, 0.62f) / 2f, y + 91, LABEL, 0.62f, false, false);
+            txt(g, f, sub, cx - w(f, sub, false, 0.62f) / 2f, y + 99, LABEL, 0.62f, false, false);
         }
     }
 

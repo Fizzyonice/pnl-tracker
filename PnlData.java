@@ -88,11 +88,13 @@ public class PnlData {
     public String displayName = "Fizzyonice";  // name shown on the dashboard
 
     // ---- auctions ----
-    public static class AucResult { public long t; public String item = "", winner = ""; public double amount; public int bidders; }
+    public static class AucResult { public long t; public String item = "", name = "", winner = ""; public double amount; public int bidders, qty = 1; }
     public int aucColor = 0xFFF0B03C;          // timer color
     public int aucSeconds = 30;                // timer length
     public boolean aucMode = true;             // payments during an auction count as bids (not gambles)
     public String aucItem = "minecraft:diamond";
+    public String aucName = "";                // custom item name ("" = real name)
+    public int aucQty = 1;                     // how many of the item
     public List<AucResult> aucHistory = new ArrayList<>();
 
     public transient long syncDue = 0;         // when to run the quiet /bal
@@ -338,6 +340,8 @@ public class PnlData {
                     if (d.aucHistory == null) d.aucHistory = new ArrayList<>();
                     if (d.aucItem == null) d.aucItem = "minecraft:diamond";
                     if (d.aucSeconds <= 0) d.aucSeconds = 30;
+                    if (d.aucName == null) d.aucName = "";
+                    if (d.aucQty <= 0) d.aucQty = 1;
                     d.prune();
                     if (!d.rbSeeded) { // start rakeback from today's payments
                         for (Tx tx : d.window()) d.rakeback.merge(tx.p, tx.a, Double::sum);

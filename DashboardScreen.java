@@ -43,6 +43,7 @@ public class DashboardScreen extends Screen {
     private static int range = 1;            // 0 24h, 1 7d, 2 30d, 3 all
     private static int feedFilter = 0;       // 0 all, 1 in, 2 out
     private static String search = "";
+    private static String selectedPlayer = null;   // Win/Loss: open player page
     private static int selectedSession = -1; // index into sessions, -1 = current/latest
 
     private boolean searchFocused = false;
@@ -127,7 +128,7 @@ public class DashboardScreen extends Screen {
             else if (hover) roundedF(g, tx, 9, w, 17, 3, CARD_HI);
             spaced(g, tabs[i], tx + 9, 14, on ? TEXT : MUTED, 0.66f);
             final int idx = i;
-            hits.add(new Hit(tx, 9, w, 17, () -> { tab = idx; searchFocused = false; aucFocused = false; }));
+            hits.add(new Hit(tx, 9, w, 17, () -> { tab = idx; searchFocused = false; aucFocused = false; field = null; selectedPlayer = null; }));
             tx += w + 4;
         }
 
@@ -268,6 +269,7 @@ public class DashboardScreen extends Screen {
     // WIN / LOSS
     // =====================================================================
     private void winLoss(GuiGraphicsExtractor g, PnlData d) {
+        if (selectedPlayer != null) { playerPage(g, d, selectedPlayer); return; }
         List<PnlData.Tx> all = d.window();
         Map<String, double[]> stats = playerStats(all, 0, Long.MAX_VALUE); // [net (player side), wagered, bets]
         List<Map.Entry<String, double[]>> list = new ArrayList<>(stats.entrySet());
@@ -281,7 +283,7 @@ public class DashboardScreen extends Screen {
         }
 
         txt(g, "Win / Loss", 20, 46, TEXT, 1.4f, true);
-        txt(g, "Everyone who has gambled with you. Top = won the most off you, bottom = lost the most.", 20, 66, MUTED, 0.68f, false);
+        txt(g, "Everyone who has gambled with you. Top = won the most off you, bottom = lost the most. Click a player to see their chart.", 20, 66, MUTED, 0.68f, false);
 
         // stat chips
         chip(g, 20, 82, "PLAYERS", String.valueOf(list.size()), TEXT);
@@ -335,8 +337,155 @@ public class DashboardScreen extends Screen {
             String amt = PnlData.signed(net);
             txt(g, amt, VW - 40 - w(amt, true, 0.88f), ry + 7, col, 0.88f, true);
             fill(g, 30, ry + rowH - 1, VW - 30, ry + rowH, ROW_LINE);
+            final String who = e.getKey();
+            hits.add(new Hit(20, ry, VW - 40, rowH, () -> { selectedPlayer = who; scroll.put("pp", 0f); }));
         }
         scrollBar(g, VW - 27, ly, visible * rowH, "wl", shown.size(), visible);
+    }
+
+    // =====================================================================
+    // PLAYER PAGE (Win/Loss -> click a name)
+    // =====================================================================
+    private void playerPage(GuiGraphicsExtractor g, PnlData d, String name) {
+        List<PnlData.Tx> txs = new ArrayList<>();
+        for (PnlData.Tx tx : d.window()) if (tx.p.equals(name) && !tx.rb) txs.add(tx);
+
+        // back
+        boolean hb = in(20, 42, 70, 18);
+        roundedF(g, 20, 42, 70, 18, 4, hb ? CARD_HI : CARD);
+        border(g, 20, 42, 70, 18, EDGE);
+        for (int i = 0; i < 4; i++) { g.fill(31 + i, 51 - i, 32 + i, 52 + i, TEXT); }   // little "<" arrow
+        txt(g, "Back", 40, 46.5f, TEXT, 0.72f, true);
+        hits.add(new Hit(20, 42, 70, 18, () -> selectedPlayer = null));
+
+        // header
+        double net = 0, wagered = 0, bigWin = 0, bigLoss = 0;
+        int bets = 0;
+        for (PnlData.Tx tx : txs) {
+            net -= tx.a;
+            if (tx.a > 0) { wagered += tx.a; bets++; bigLoss = Math.max(bigLoss, tx.a); }
+            else bigWin = Math.max(bigWin, -tx.a);
+        }
+        avatar(g, name, 118, 52, 13);
+        txt(g, name, 138, 41, TEXT, 1.35f, true);
+        txt(g, net > 0 ? "is up on you" : net < 0 ? "is down on you" : "is even with you", 139, 57, MUTED, 0.68f, false);
+        String ns = PnlData.signed(net).replace(".00", "");
+        int nc = net > 0 ? GREEN : net < 0 ? RED : MUTED;
+        txt(g, ns, VW - 20 - w(ns, true, 1.6f), 42, nc, 1.6f, true);
+        spaced(g, "THEIR NET (ALL TIME)", VW - 20 - spacedW("THEIR NET (ALL TIME)", 0.56f), 62, DIM, 0.56f);
+
+        float cx = chip(g, 20, 76, "BETS", String.valueOf(bets), TEXT);
+        cx = chip(g, cx, 76, "WAGERED", PnlData.format(wagered), TEXT);
+        cx = chip(g, cx, 76, "BIGGEST WIN", bigWin > 0 ? PnlData.format(bigWin) : "-", bigWin > 0 ? GREEN : MUTED);
+        cx = chip(g, cx, 76, "BIGGEST LOSS", bigLoss > 0 ? PnlData.format(bigLoss) : "-", bigLoss > 0 ? RED : MUTED);
+        if (!txs.isEmpty()) {
+            cx = chip(g, cx, 76, "FIRST BET", dateLong(txs.get(0).t), MUTED);
+            chip(g, cx, 76, "LAST SEEN", dateLong(txs.get(txs.size() - 1).t), MUTED);
+        }
+
+        // chart card
+        float gx = 20, gy = 112, gw = 600, gh = VH - 20 - gy;
+        rounded(g, gx, gy, gw, gh, 5, CARD);
+        border(g, gx, gy, gw, gh, EDGE);
+        spaced(g, "UP / DOWN ON YOU", gx + 14, gy + 14, TEXT, 0.7f);
+        txt(g, "all time  \u00B7  hover the line", gx + 14 + spacedW("UP / DOWN ON YOU", 0.7f) + 10, gy + 14.5f, DIM, 0.6f, false);
+        playerChart(g, txs, gx + 14, gy + 36, gw - 28, gh - 52);
+
+        // payments with them
+        float px = 630, pw = VW - 20 - px;
+        rounded(g, px, gy, pw, gh, 5, CARD);
+        border(g, px, gy, pw, gh, EDGE);
+        spaced(g, "PAYMENTS", px + 14, gy + 14, TEXT, 0.7f);
+        float ly = gy + 32, rowH = 26;
+        int visible = (int) ((gy + gh - 8 - ly) / rowH);
+        int first = scrollIndex("pp", txs.size(), visible, px, ly, pw, visible * rowH);
+        if (txs.isEmpty()) txt(g, "No payments with " + name, px + 14, ly + 4, DIM, 0.72f, false);
+        for (int i = first; i < Math.min(txs.size(), first + visible); i++) {
+            PnlData.Tx tx = txs.get(txs.size() - 1 - i);
+            float ry = ly + (i - first) * rowH;
+            txt(g, tx.a >= 0 ? "they bet / paid you" : "you paid them", px + 14, ry + 3, TEXT, 0.68f, true);
+            txt(g, dateLong(tx.t) + "  \u00B7  " + time(tx.t), px + 14, ry + 13, DIM, 0.58f, false);
+            String a = PnlData.signed(-tx.a);
+            txt(g, a, px + pw - 14 - w(a, true, 0.78f), ry + 7, tx.a > 0 ? RED : GREEN, 0.78f, true);
+            fill(g, px + 10, ry + rowH - 1, px + pw - 10, ry + rowH, ROW_LINE);
+        }
+        scrollBar(g, px + pw - 6, ly, visible * rowH, "pp", txs.size(), visible);
+    }
+
+    /** Their running net (their side) after every payment: green above zero, red below, with a hover readout. */
+    private void playerChart(GuiGraphicsExtractor g, List<PnlData.Tx> txs, float x, float y, float w, float h) {
+        int n = txs.size();
+        double[] v = new double[n + 1];
+        for (int i = 0; i < n; i++) v[i + 1] = v[i] - txs.get(i).a;
+        double min = 0, max = 0;
+        for (double a : v) { min = Math.min(min, a); max = Math.max(max, a); }
+        if (max - min < 1) { max += 1; min -= 1; }
+        double pad = (max - min) * 0.1;
+        max += pad; min -= pad;
+        for (int i = 0; i <= 4; i++) {
+            float gy = y + h * i / 4f;
+            for (float gx = x; gx < x + w; gx += 6) fill(g, gx, gy, gx + 2, gy + 0.6f, 0x12FFFFFF);
+        }
+        if (n == 0) {
+            String m = "No payments yet";
+            txt(g, m, x + (w - w(m, false, 0.8f)) / 2f, y + h / 2f - 4, DIM, 0.8f, false);
+            return;
+        }
+        final int Q = 4;
+        int X0 = Math.round(x * Q), W = Math.round(w * Q), Y0 = Math.round(y * Q), H = Math.round(h * Q);
+        int zeroY = Y0 + (int) Math.round(max / (max - min) * H);
+        int segs = v.length - 1;
+        g.pose().pushMatrix();
+        g.pose().scale(1f / Q, 1f / Q);
+        for (int gx = X0; gx < X0 + W; gx += 16) g.fill(gx, zeroY, gx + 8, zeroY + 2, 0x55FFFFFF);
+        int prev = -1;
+        for (int px = 0; px <= W; px++) {
+            double pos = px / (double) W * segs;
+            int i = Math.min(segs - 1, (int) pos);
+            double f = pos - i;
+            double val = v[i] + (v[i + 1] - v[i]) * f;
+            int yy = Y0 + (int) Math.round((max - val) / (max - min) * H);
+            boolean up = val >= 0;
+            g.fill(X0 + px, Math.min(yy, zeroY), X0 + px + 1, Math.max(yy, zeroY), up ? 0x223FE08A : 0x22FF5A72);
+            int top = prev < 0 ? yy : Math.min(prev, yy), bot = prev < 0 ? yy : Math.max(prev, yy);
+            g.fill(X0 + px, top - 3, X0 + px + 1, bot + 4, up ? GREEN : RED);
+            prev = yy;
+        }
+        g.pose().popMatrix();
+        txt(g, PnlData.signed(max - pad).replace(".00", ""), x + 2, y + 2, DIM, 0.58f, false);
+        txt(g, PnlData.signed(min + pad).replace(".00", ""), x + 2, y + h - 8, DIM, 0.58f, false);
+        double last = v[n];
+        float ly = (float) (y + (max - last) / (max - min) * h);
+        PnlHud.circle(g, x + w, ly, 2.8f, last >= 0 ? GREEN : RED);
+        PnlHud.circle(g, x + w, ly, 1.3f, TEXT);
+
+        // hover: snap to the nearest payment
+        if (mouseVX >= x && mouseVX <= x + w && mouseVY >= y - 4 && mouseVY <= y + h + 4) {
+            int k = Math.max(0, Math.min(segs, Math.round((mouseVX - x) / w * segs)));
+            float px = x + w * k / (float) segs;
+            float py = (float) (y + (max - v[k]) / (max - min) * h);
+            fill(g, px - 0.25f, y, px + 0.25f, y + h, 0x55FFFFFF);
+            int c = v[k] >= 0 ? GREEN : RED;
+            PnlHud.circle(g, px, py, 3.4f, c);
+            PnlHud.circle(g, px, py, 1.6f, TEXT);
+            String l1 = PnlData.signed(v[k]).replace(".00", "") + (v[k] > 0 ? "  up on you" : v[k] < 0 ? "  down on you" : "  even");
+            String l2, l3;
+            if (k == 0) { l2 = "Before their first payment"; l3 = ""; }
+            else {
+                PnlData.Tx tx = txs.get(k - 1);
+                l2 = dateLong(tx.t) + "  \u00B7  " + time(tx.t);
+                l3 = tx.a >= 0 ? "They paid you " + PnlData.format(tx.a) : "You paid them " + PnlData.format(-tx.a);
+            }
+            float tw = Math.max(w(l1, true, 0.8f), Math.max(w(l2, false, 0.62f), w(l3, false, 0.62f))) + 16;
+            float th = l3.isEmpty() ? 30 : 40;
+            float tx0 = px + 10 + tw > x + w ? px - 10 - tw : px + 10;
+            float ty0 = Math.max(y, Math.min(y + h - th, py - th / 2f));
+            rounded(g, tx0, ty0, tw, th, 4, 0xF2070912);
+            border(g, tx0, ty0, tw, th, c);
+            txt(g, l1, tx0 + 8, ty0 + 6, c, 0.8f, true);
+            txt(g, l2, tx0 + 8, ty0 + 18, MUTED, 0.62f, false);
+            if (!l3.isEmpty()) txt(g, l3, tx0 + 8, ty0 + 28, TEXT, 0.62f, false);
+        }
     }
 
     private float chip(GuiGraphicsExtractor g, float x, float y, String label, String value, int col) {
@@ -510,7 +659,6 @@ public class DashboardScreen extends Screen {
     // AUCTIONS
     // =====================================================================
     static final int[] AUC_COLORS = {0xFFF0B03C, 0xFF9B7BFF, 0xFF3FE08A, 0xFFFF5A72, 0xFF5B9BFF, 0xFFF29BCB, 0xFF3FD8E0, 0xFFF1F2F8};
-    static final int[] AUC_TIMES = {15, 30, 45, 60, 120, 300};
 
     private void auctions(GuiGraphicsExtractor g, PnlData d) {
         txt(g, "Auctions", 20, 46, TEXT, 1.4f, true);
@@ -520,120 +668,140 @@ public class DashboardScreen extends Screen {
         int col = d.aucColor;
 
         // ----- timer card -----
-        float lx = 20, lw = 410, cy0 = 84, ch = 250;
+        float lx = 20, lw = 410, cy0 = 84, ch = 222;
         rounded(g, lx, cy0, lw, ch, 6, CARD);
         border(g, lx, cy0, lw, ch, EDGE);
         String label = "AUCTIONS";
-        spaced(g, label, lx + (lw - spacedW(label, 0.9f)) / 2f, cy0 + 12, col, 0.9f);
-        float ccx = lx + lw / 2f, ccy = cy0 + 118;
+        spaced(g, label, lx + (lw - spacedW(label, 0.9f)) / 2f, cy0 + 10, col, 0.9f);
+        float ccx = lx + lw / 2f, ccy = cy0 + 104;
         long total = Math.max(1, Auction.endAt - Auction.startAt);
         float prog = live ? Auction.remainingMs() / (float) total : 1f;
-        PnlHud.circle(g, ccx, ccy, 70, 0xFF0C0E19);
-        PnlHud.ring(g, ccx, ccy, 82, 72, prog, live ? col : (recent ? (col & 0xFFFFFF) | 0x66000000 : col), 0x22FFFFFF);
+        PnlHud.circle(g, ccx, ccy, 64, 0xFF0C0E19);
+        PnlHud.ring(g, ccx, ccy, 76, 66, prog, live ? col : (recent ? (col & 0xFFFFFF) | 0x66000000 : col), 0x22FFFFFF);
         String showId = live || recent ? Auction.itemId : d.aucItem;
         Items.Entry it = Items.get(showId);
+        int showQty = live || recent ? Auction.qty : d.aucQty;
         if (it != null) {
             g.pose().pushMatrix();
-            g.pose().translate(ccx - 26, ccy - 40);
-            g.pose().scale(3.25f, 3.25f);
+            g.pose().translate(ccx - 24, ccy - 40);
+            g.pose().scale(3.0f, 3.0f);
             Items.draw(g, it.stack, 0, 0);
             g.pose().popMatrix();
+            if (showQty > 1) {
+                String q = "x" + showQty;
+                float qw = w(q, true, 0.75f) + 10;
+                roundedF(g, ccx + 14, ccy - 2, qw, 13, 6.5f, (col & 0xFFFFFF) | 0xEE000000);
+                txt(g, q, ccx + 19, ccy + 1, 0xFF0A0B14, 0.75f, true);
+            }
         }
         String clock = live ? Auction.clock(Auction.remainingMs()) : recent ? "SOLD" : Auction.clock(d.aucSeconds * 1000L);
-        txt(g, clock, ccx - w(clock, true, 1.5f) / 2f, ccy + 20, TEXT, 1.5f, true);
-        String nm = it == null ? "No item picked" : it.name;
-        txt(g, nm, ccx - w(nm, false, 0.62f) / 2f, ccy + 40, MUTED, 0.62f, false);
+        txt(g, clock, ccx - w(clock, true, 1.4f) / 2f, ccy + 16, TEXT, 1.4f, true);
+        String nm = it == null ? "No item picked" : (live || recent ? Auction.label(Auction.itemId, Auction.name, Auction.qty) : Auction.label(d.aucItem, d.aucName, d.aucQty));
+        nm = trim(nm, false, 0.66f, 110);
+        txt(g, nm, ccx - w(nm, false, 0.66f) / 2f, ccy + 34, MUTED, 0.66f, false);
         Map.Entry<String, Double> lead = Auction.leader();
         String status;
         int sc;
         if (live) { status = lead == null ? (d.aucMode ? "Waiting for bids..." : "Auction switch is off: payments aren't counted as bids") : lead.getKey() + " is winning  \u00B7  " + PnlData.format(lead.getValue()); sc = lead == null ? MUTED : GREEN; }
         else if (recent) { status = lead == null ? "Ended with no bids" : lead.getKey() + " won the auction!  \u00B7  " + PnlData.format(lead.getValue()); sc = lead == null ? MUTED : GREEN; }
         else { status = "Ready when you are"; sc = MUTED; }
-        txt(g, status, ccx - w(status, true, 0.8f) / 2f, cy0 + ch - 20, sc, 0.8f, true);
+        txt(g, status, ccx - w(status, true, 0.8f) / 2f, cy0 + ch - 18, sc, 0.8f, true);
 
-        // ----- controls -----
-        float y = cy0 + ch + 10;
+        // ----- start / end -----
+        float y = cy0 + ch + 8;
         String btn = live ? "END NOW" : "START AUCTION";
         float bw = spacedW(btn, 0.72f) + 34;
-        boolean hover = in(lx, y, bw, 26);
+        boolean hover = in(lx, y, bw, 24);
         int bcol = live ? (hover ? 0xFFFF6E83 : RED) : (hover ? 0xFF8F6CFF : PURPLE_D);
-        roundedF(g, lx, y, bw, 26, 4, bcol);
-        if (live) roundedF(g, lx + 12, y + 9, 8, 8, 1, TEXT); else triangle(g, lx + 13, y + 8.5f, 9, TEXT);
-        spaced(g, btn, lx + 26, y + 9.5f, TEXT, 0.72f);
-        hits.add(new Hit(lx, y, bw, 26, () -> {
+        roundedF(g, lx, y, bw, 24, 4, bcol);
+        if (live) roundedF(g, lx + 12, y + 8, 8, 8, 1, TEXT); else triangle(g, lx + 13, y + 7.5f, 9, TEXT);
+        spaced(g, btn, lx + 26, y + 8.5f, TEXT, 0.72f);
+        hits.add(new Hit(lx, y, bw, 24, () -> {
+            PnlData dd = PnlTracker.DATA;
             if (Auction.running()) Auction.stop();
-            else if (Items.get(PnlTracker.DATA.aucItem) != null) Auction.start(PnlTracker.DATA.aucItem, PnlTracker.DATA.aucSeconds);
+            else if (Items.get(dd.aucItem) != null) { field = null; Auction.start(dd.aucItem, dd.aucName, dd.aucQty, dd.aucSeconds); }
         }));
         if (live || recent) {
             String cl = live ? "Cancel (no winner)" : "Clear";
             float cx = lx + bw + 12;
-            txt(g, cl, cx, y + 9, MUTED, 0.7f, true);
-            hits.add(new Hit(cx, y + 3, w(cl, true, 0.7f), 20, Auction::cancel));
+            txt(g, cl, cx, y + 8, MUTED, 0.7f, true);
+            hits.add(new Hit(cx, y + 2, w(cl, true, 0.7f), 20, Auction::cancel));
         }
-        // timer length
-        float tx = lx + lw;
-        for (int i = AUC_TIMES.length - 1; i >= 0; i--) {
-            int sec = AUC_TIMES[i];
-            String t = sec < 60 ? sec + "s" : (sec / 60) + "m";
-            float tw = w(t, true, 0.66f) + 14;
-            tx -= tw + 3;
-            boolean on = d.aucSeconds == sec;
-            roundedF(g, tx, y + 5, tw, 17, 3, on ? PURPLE_D : CARD_HI);
-            txt(g, t, tx + 7, y + 9.5f, on ? TEXT : MUTED, 0.66f, true);
-            hits.add(new Hit(tx, y + 5, tw, 17, () -> { if (!Auction.running()) { PnlTracker.DATA.aucSeconds = sec; PnlTracker.DATA.save(); } }));
-        }
-        // timer color
-        y += 34;
-        spaced(g, "TIMER COLOR", lx, y + 5, DIM, 0.6f);
-        float sx = lx + 76;
-        for (int c : AUC_COLORS) {
+        String rule = "Biggest single payment wins (bids don't stack)";
+        txt(g, rule, lx + lw - w(rule, false, 0.56f), y + 9, DIM, 0.56f, false);
+
+        // ----- name / quantity / seconds -----
+        y += 32;
+        if (!"name".equals(field)) nameBuf = d.aucName;
+        if (!"qty".equals(field)) qtyBuf = String.valueOf(d.aucQty);
+        if (!"sec".equals(field)) secBuf = String.valueOf(d.aucSeconds);
+        String realName = it == null ? "Item name" : it.name;
+        input(g, "name", lx, y, 210, "NAME", nameBuf, realName);
+        input(g, "qty", lx + 218, y, 90, "QUANTITY", qtyBuf, "1");
+        input(g, "sec", lx + 316, y, 94, "SECONDS", secBuf, "30");
+
+        // ----- timer color: quick colors + picker -----
+        y += 40;
+        spaced(g, "TIMER COLOR", lx, y, DIM, 0.58f);
+        float sx = lx;
+        float sy = y + 10;
+        for (int i = 0; i < AUC_COLORS.length; i++) {
+            int c = AUC_COLORS[i];
+            float bx2 = sx + (i % 4) * 22, by2 = sy + (i / 4) * 20;
             boolean on = d.aucColor == c;
-            if (on) PnlHud.circle(g, sx + 7, y + 8, 8.5f, TEXT);
-            PnlHud.circle(g, sx + 7, y + 8, 7, c);
-            hits.add(new Hit(sx, y, 14, 16, () -> { PnlTracker.DATA.aucColor = c; PnlTracker.DATA.save(); }));
-            sx += 22;
+            if (on) PnlHud.circle(g, bx2 + 8, by2 + 8, 8.6f, TEXT);
+            PnlHud.circle(g, bx2 + 8, by2 + 8, 7, c);
+            hits.add(new Hit(bx2, by2, 16, 16, () -> { PnlTracker.DATA.aucColor = c; PnlTracker.DATA.save(); syncPicker(c); }));
         }
-        // auction switch
-        y += 26;
-        float rw = lw, rh = 44;
+        colorPicker(g, d, lx + 100, sy, 230, 36);
+        // preview swatch
+        roundedF(g, lx + 340, sy, 70, 36, 5, d.aucColor);
+        String hex = String.format("#%06X", d.aucColor & 0xFFFFFF);
+        txt(g, hex, lx + 375 - w(hex, true, 0.62f) / 2f, sy + 14, (luma(d.aucColor) > 150) ? 0xFF0A0B14 : TEXT, 0.62f, true);
+
+        // ----- auction switch -----
+        y = sy + 44;
+        float rw = lw, rh = 34;
         rounded(g, lx, y, rw, rh, 5, CARD);
         border(g, lx, y, rw, rh, d.aucMode ? 0xFF3B2C7A : EDGE);
-        txt(g, "Auction switch", lx + 14, y + 9, TEXT, 0.85f, true);
-        txt(g, "On: while an auction runs, money paid to you counts as bids, not bets.", lx + 14, y + 24, MUTED, 0.6f, false);
-        float swx = lx + rw - 14 - 36, swy = y + (rh - 18) / 2f;
-        roundedF(g, swx, swy, 36, 18, 9, d.aucMode ? PURPLE_D : 0xFF2A2D40);
-        PnlHud.circle(g, d.aucMode ? swx + 27 : swx + 9, swy + 9, 6, TEXT);
+        txt(g, "Auction switch", lx + 12, y + 6, TEXT, 0.8f, true);
+        txt(g, "On: while an auction runs, money paid to you counts as bids, not bets.", lx + 12, y + 20, MUTED, 0.58f, false);
+        float swx = lx + rw - 12 - 34, swy = y + (rh - 16) / 2f;
+        roundedF(g, swx, swy, 34, 16, 8, d.aucMode ? PURPLE_D : 0xFF2A2D40);
+        PnlHud.circle(g, d.aucMode ? swx + 26 : swx + 8, swy + 8, 5.5f, TEXT);
         hits.add(new Hit(lx, y, rw, rh, () -> { PnlTracker.DATA.aucMode = !PnlTracker.DATA.aucMode; PnlTracker.DATA.save(); }));
-        // bids / last results
-        y += rh + 8;
+
+        // ----- bids / last results -----
+        y += rh + 6;
         float bh = VH - 20 - y;
         rounded(g, lx, y, lw, bh, 5, CARD);
         border(g, lx, y, lw, bh, EDGE);
+        int rows = Math.max(1, (int) ((bh - 20) / 11));
         if (live || (recent && !Auction.bids.isEmpty())) {
-            spaced(g, "BIDS", lx + 12, y + 8, TEXT, 0.62f);
+            spaced(g, "BIDS", lx + 12, y + 7, TEXT, 0.6f);
+            txt(g, "biggest single payment", lx + 12 + spacedW("BIDS", 0.6f) + 8, y + 7.5f, DIM, 0.56f, false);
             List<Map.Entry<String, Double>> bl = new ArrayList<>(Auction.bids.entrySet());
-            bl.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
-            float ry = y + 20;
-            if (bl.isEmpty()) txt(g, "No bids yet", lx + 12, ry, DIM, 0.68f, false);
-            for (int i = 0; i < Math.min(3, bl.size()); i++) {
-                avatar(g, bl.get(i).getKey(), lx + 19, ry + 5, 6);
-                txt(g, bl.get(i).getKey(), lx + 30, ry, i == 0 ? TEXT : MUTED, 0.72f, true);
-                String a = PnlData.format(bl.get(i).getValue());
-                txt(g, a, lx + lw - 12 - w(a, true, 0.72f), ry, i == 0 ? GREEN : MUTED, 0.72f, true);
-                ry += 12;
+            bl.sort((a2, b2) -> Double.compare(b2.getValue(), a2.getValue()));
+            float ry = y + 19;
+            if (bl.isEmpty()) txt(g, "No bids yet", lx + 12, ry, DIM, 0.66f, false);
+            for (int i = 0; i < Math.min(rows, bl.size()); i++) {
+                avatar(g, bl.get(i).getKey(), lx + 18, ry + 4.5f, 5);
+                txt(g, bl.get(i).getKey(), lx + 28, ry, i == 0 ? TEXT : MUTED, 0.68f, true);
+                String a2 = PnlData.format(bl.get(i).getValue());
+                txt(g, a2, lx + lw - 12 - w(a2, true, 0.68f), ry, i == 0 ? GREEN : MUTED, 0.68f, true);
+                ry += 11;
             }
         } else {
-            spaced(g, "LAST AUCTIONS", lx + 12, y + 8, TEXT, 0.62f);
-            float ry = y + 20;
-            if (d.aucHistory.isEmpty()) txt(g, "Your finished auctions will show up here", lx + 12, ry, DIM, 0.68f, false);
-            for (int i = d.aucHistory.size() - 1, n = 0; i >= 0 && n < 3; i--, n++) {
+            spaced(g, "LAST AUCTIONS", lx + 12, y + 7, TEXT, 0.6f);
+            float ry = y + 19;
+            if (d.aucHistory.isEmpty()) txt(g, "Your finished auctions will show up here", lx + 12, ry, DIM, 0.66f, false);
+            for (int i = d.aucHistory.size() - 1, n = 0; i >= 0 && n < rows; i--, n++) {
                 PnlData.AucResult r = d.aucHistory.get(i);
-                Items.Entry ri = Items.get(r.item);
-                String left = (ri == null ? r.item : ri.name) + "  \u2192  " + (r.winner.isEmpty() ? "no bids" : r.winner);
-                txt(g, trim(left, true, 0.68f, lw - 110), lx + 12, ry, TEXT, 0.68f, true);
-                String a = r.winner.isEmpty() ? "-" : PnlData.format(r.amount);
-                txt(g, a, lx + lw - 12 - w(a, true, 0.68f), ry, r.winner.isEmpty() ? DIM : GREEN, 0.68f, true);
-                ry += 12;
+                String left = Auction.label(r.item, r.name, r.qty) + "  \u2192  " + (r.winner.isEmpty() ? "no bids" : r.winner);
+                txt(g, trim(left, true, 0.66f, lw - 110), lx + 12, ry, TEXT, 0.66f, true);
+                String a2 = r.winner.isEmpty() ? "-" : PnlData.format(r.amount);
+                txt(g, a2, lx + lw - 12 - w(a2, true, 0.66f), ry, r.winner.isEmpty() ? DIM : GREEN, 0.66f, true);
+                ry += 11;
             }
         }
 
@@ -681,13 +849,135 @@ public class DashboardScreen extends Screen {
                 Items.draw(g, e.stack, 0, 0);
                 g.pose().popMatrix();
                 final String id = e.id;
-                hits.add(new Hit(tx2, ty2, tile, tile, () -> { if (!Auction.running()) { PnlTracker.DATA.aucItem = id; PnlTracker.DATA.save(); } }));
+                hits.add(new Hit(tx2, ty2, tile, tile, () -> {
+                    if (Auction.running()) return;
+                    if (!id.equals(PnlTracker.DATA.aucItem)) PnlTracker.DATA.aucName = "";
+                    PnlTracker.DATA.aucItem = id;
+                    PnlTracker.DATA.save();
+                }));
             }
         }
         scrollBar(g, px + pw - 7, gy0, rowsVis * (tile + gap), "items", rowsAll, rowsVis);
         String foot = hoverName != null ? hoverName : found.size() + " items";
         txt(g, foot, px + 14, py + ph - 16, hoverName != null ? TEXT : DIM, 0.7f, hoverName != null);
     }
+
+    // ---------- small text boxes (name / quantity / seconds) ----------
+    private static String field = null;   // which box you're typing in
+    private static String nameBuf = "", qtyBuf = "1", secBuf = "30";
+
+    private void input(GuiGraphicsExtractor g, String key, float x, float y, float w, String label, String value, String placeholder) {
+        boolean on = key.equals(field);
+        spaced(g, label, x, y, DIM, 0.56f);
+        float by = y + 8, h = 22;
+        rounded(g, x, by, w, h, 4, on ? CARD_HI : 0xFF0C0E19);
+        border(g, x, by, w, h, on ? PURPLE_D : EDGE);
+        boolean caret = on && (System.currentTimeMillis() / 500) % 2 == 0;
+        String shown = trim(value, false, 0.76f, w - 16);
+        if (value.isEmpty() && !on) txt(g, trim(placeholder, false, 0.76f, w - 16), x + 8, by + 7, DIM, 0.76f, false);
+        else txt(g, shown + (caret ? "|" : ""), x + 8, by + 7, TEXT, 0.76f, false);
+        hits.add(new Hit(x, by, w, h, () -> { if (!Auction.running()) field = key; }));
+    }
+
+    /** Saves what you typed into a box. */
+    private static void commitField() {
+        PnlData d = PnlTracker.DATA;
+        if (d == null || field == null) return;
+        switch (field) {
+            case "name" -> d.aucName = nameBuf.trim();
+            case "qty" -> { try { d.aucQty = Math.max(1, Math.min(1_000_000, Integer.parseInt(qtyBuf.trim()))); } catch (Exception ignored) {} }
+            case "sec" -> { try { d.aucSeconds = Math.max(1, Math.min(3600, Integer.parseInt(secBuf.trim()))); } catch (Exception ignored) {} }
+            default -> {}
+        }
+        d.save();
+    }
+
+    // ---------- color picker ----------
+    private static float pickH = 0.11f, pickS = 0.75f, pickV = 0.94f;
+    private static boolean pickerSynced = false;
+    private static int dragTarget = 0;          // 1 = color square, 2 = rainbow bar
+    private float pickX, pickY, pickW, pickH2, hueX, hueW;
+
+    private static void syncPicker(int argb) {
+        float[] hsv = rgbToHsv(argb);
+        pickH = hsv[0]; pickS = hsv[1]; pickV = hsv[2];
+    }
+
+    /** Color square (saturation / brightness) on the left, rainbow bar (hue) on the right. Click or drag. */
+    private void colorPicker(GuiGraphicsExtractor g, PnlData d, float x, float y, float w, float h) {
+        if (!pickerSynced) { syncPicker(d.aucColor); pickerSynced = true; }
+        float sqW = w - 22;
+        pickX = x; pickY = y; pickW = sqW; pickH2 = h; hueX = x + sqW + 6; hueW = 16;
+        final int Q = 2, cells = 2;
+        g.pose().pushMatrix();
+        g.pose().scale(1f / Q, 1f / Q);
+        int X = Math.round(x * Q), Y = Math.round(y * Q), Wd = Math.round(sqW * Q), H = Math.round(h * Q);
+        for (int cy = 0; cy < H; cy += cells)
+            for (int cx = 0; cx < Wd; cx += cells)
+                g.fill(X + cx, Y + cy, X + Math.min(cx + cells, Wd), Y + Math.min(cy + cells, H), hsvToRgb(pickH, cx / (float) Wd, 1 - cy / (float) H));
+        int HX = Math.round(hueX * Q), HW = Math.round(hueW * Q);
+        for (int cy = 0; cy < H; cy += cells)
+            g.fill(HX, Y + cy, HX + HW, Y + Math.min(cy + cells, H), hsvToRgb(cy / (float) H, 1, 1));
+        g.pose().popMatrix();
+        border(g, x, y, sqW, h, EDGE);
+        border(g, hueX, y, hueW, h, EDGE);
+        // markers
+        float mx = x + pickS * sqW, my = y + (1 - pickV) * h;
+        PnlHud.circle(g, mx, my, 3.4f, 0xFFFFFFFF);
+        PnlHud.circle(g, mx, my, 2.2f, d.aucColor);
+        float hy = y + pickH * h;
+        fill(g, hueX - 1.5f, hy - 1, hueX + hueW + 1.5f, hy + 1, 0xFFFFFFFF);
+        hits.add(new Hit(x, y, sqW, h, () -> { dragTarget = 1; applyPick(); }));
+        hits.add(new Hit(hueX, y, hueW, h, () -> { dragTarget = 2; applyPick(); }));
+    }
+
+    private float lastVX, lastVY;
+
+    private void applyPick() {
+        PnlData d = PnlTracker.DATA;
+        if (d == null || dragTarget == 0) return;
+        if (dragTarget == 1) {
+            pickS = clamp01((lastVX - pickX) / pickW);
+            pickV = 1 - clamp01((lastVY - pickY) / pickH2);
+        } else {
+            pickH = clamp01((lastVY - pickY) / pickH2);
+            if (pickH >= 1) pickH = 0.999f;
+        }
+        d.aucColor = hsvToRgb(pickH, pickS, pickV);
+    }
+
+    private static float clamp01(float v) { return Math.max(0, Math.min(1, v)); }
+
+    private static int hsvToRgb(float h, float s, float v) {
+        float r, g, b;
+        int i = (int) Math.floor(h * 6) % 6;
+        float f = h * 6 - (float) Math.floor(h * 6), p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+        switch (i) {
+            case 0 -> { r = v; g = t; b = p; }
+            case 1 -> { r = q; g = v; b = p; }
+            case 2 -> { r = p; g = v; b = t; }
+            case 3 -> { r = p; g = q; b = v; }
+            case 4 -> { r = t; g = p; b = v; }
+            default -> { r = v; g = p; b = q; }
+        }
+        return 0xFF000000 | (Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255);
+    }
+
+    private static float[] rgbToHsv(int argb) {
+        float r = ((argb >> 16) & 255) / 255f, g = ((argb >> 8) & 255) / 255f, b = (argb & 255) / 255f;
+        float max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b)), dlt = max - min;
+        float h = 0;
+        if (dlt > 0) {
+            if (max == r) h = ((g - b) / dlt) % 6;
+            else if (max == g) h = (b - r) / dlt + 2;
+            else h = (r - g) / dlt + 4;
+            h /= 6;
+            if (h < 0) h += 1;
+        }
+        return new float[]{h, max == 0 ? 0 : dlt / max, max};
+    }
+
+    private static int luma(int argb) { return (int) (0.299 * ((argb >> 16) & 255) + 0.587 * ((argb >> 8) & 255) + 0.114 * (argb & 255)); }
 
     // =====================================================================
     // PROFIT PANEL (on-screen panel switches)
@@ -985,9 +1275,12 @@ public class DashboardScreen extends Screen {
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         float vx = (float) ((event.x() - ox) / scale), vy = (float) ((event.y() - oy) / scale);
-        boolean wasFocused = searchFocused || aucFocused;
+        lastVX = vx; lastVY = vy;
+        boolean wasFocused = searchFocused || aucFocused || field != null;
         searchFocused = false;
         aucFocused = false;
+        if (field != null) { commitField(); field = null; }
+        dragTarget = 0;
         for (int i = hits.size() - 1; i >= 0; i--) {
             Hit h = hits.get(i);
             if (vx >= h.x() && vx <= h.x() + h.w() && vy >= h.y() && vy <= h.y() + h.h()) {
@@ -996,6 +1289,23 @@ public class DashboardScreen extends Screen {
             }
         }
         return wasFocused || super.mouseClicked(event, doubleClick);
+    }
+
+    @Override
+    public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
+        if (dragTarget != 0) {
+            lastVX = (float) ((event.x() - ox) / scale);
+            lastVY = (float) ((event.y() - oy) / scale);
+            applyPick();
+            return true;
+        }
+        return super.mouseDragged(event, dragX, dragY);
+    }
+
+    @Override
+    public boolean mouseReleased(MouseButtonEvent event) {
+        if (dragTarget != 0) { dragTarget = 0; syncPicker(PnlTracker.DATA.aucColor); PnlTracker.DATA.save(); return true; }
+        return super.mouseReleased(event);
     }
 
     @Override
@@ -1014,10 +1324,14 @@ public class DashboardScreen extends Screen {
 
     @Override
     public boolean charTyped(CharacterEvent event) {
-        if (!searchFocused && !aucFocused) return super.charTyped(event);
+        if (!searchFocused && !aucFocused && field == null) return super.charTyped(event);
         int cp = event.codepoint();
         if (cp >= 32 && cp != 127) {
             String add = new String(Character.toChars(cp));
+            if ("name".equals(field) && nameBuf.length() < 32) nameBuf += add;
+            if ("qty".equals(field) && Character.isDigit(cp) && qtyBuf.length() < 7) qtyBuf = (qtyBuf.equals("0") ? "" : qtyBuf) + add;
+            if ("sec".equals(field) && Character.isDigit(cp) && secBuf.length() < 4) secBuf = (secBuf.equals("0") ? "" : secBuf) + add;
+            if (field != null) commitField();
             if (searchFocused && search.length() < 24) { search += add; scroll.put("wl", 0f); }
             if (aucFocused && aucSearch.length() < 32) { aucSearch += add; scroll.put("items", 0f); }
         }
@@ -1027,6 +1341,21 @@ public class DashboardScreen extends Screen {
     @Override
     public boolean keyPressed(KeyEvent event) {
         int key = event.key();
+        if (field != null) {
+            if (key == 259) {                                                          // Backspace
+                if ("name".equals(field) && !nameBuf.isEmpty()) nameBuf = nameBuf.substring(0, nameBuf.length() - 1);
+                if ("qty".equals(field) && !qtyBuf.isEmpty()) qtyBuf = qtyBuf.substring(0, qtyBuf.length() - 1);
+                if ("sec".equals(field) && !secBuf.isEmpty()) secBuf = secBuf.substring(0, secBuf.length() - 1);
+                commitField();
+                return true;
+            }
+            if (key == 256 || key == 257 || key == 335 || key == 258) {             // Esc / Enter / Tab: done typing
+                commitField();
+                field = key == 258 ? ("name".equals(field) ? "qty" : "qty".equals(field) ? "sec" : null) : null;
+                return true;
+            }
+            return true;
+        }
         if (searchFocused || aucFocused) {
             if (key == 256) { searchFocused = false; aucFocused = false; return true; } // Esc: leave the search box
             if (key == 259) {                                                          // Backspace
@@ -1039,6 +1368,7 @@ public class DashboardScreen extends Screen {
             if (key == 257 || key == 335) { searchFocused = false; aucFocused = false; return true; } // Enter
             return true; // swallow other keys while typing (so letters don't trigger keybinds)
         }
+        if (key == 256 && tab == 1 && selectedPlayer != null) { selectedPlayer = null; return true; } // Esc on a player page: back to the list
         if (PnlTracker.DASHBOARD_KEY != null && PnlTracker.DASHBOARD_KEY.matches(event)) { onClose(); return true; }
         if (key == 70 && tab == 1) { searchFocused = true; return true; }             // F: jump to search on Win/Loss
         return super.keyPressed(event);
