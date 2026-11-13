@@ -203,11 +203,22 @@ public class PnlData {
 
     /** Payments in the last 24h, oldest first. */
     /** All saved payments, oldest first (nothing expires on its own). */
+    // window() is called many times per frame by the dashboard, so keep the sorted copy until the payments change
+    private transient List<Tx> winCache;
+    private transient int winSize = -1;
+    private transient Tx winFirst, winLast;
+    private transient long winAt;
+
     public List<Tx> window() {
+        long now = System.currentTimeMillis();
+        Tx f = txs.isEmpty() ? null : txs.get(0), l = txs.isEmpty() ? null : txs.get(txs.size() - 1);
+        if (winCache != null && winSize == txs.size() && winFirst == f && winLast == l && now - winAt < 2000) return winCache;
         List<Tx> out = new ArrayList<>();
         for (Tx tx : txs) if (tx != null) out.add(tx);
         out.sort(Comparator.comparingLong(tx -> tx.t));
-        return out;
+        winCache = Collections.unmodifiableList(out);
+        winSize = txs.size(); winFirst = f; winLast = l; winAt = now;
+        return winCache;
     }
 
     /** Saves a copy of everything before a big reset, so /pnl undo can bring it back. */
@@ -390,8 +401,38 @@ public class PnlData {
         return s.replaceAll("\\.00([KMBT])", "$1").replaceAll("(\\.\\d)0([KMBT])", "$1$2");
     }
 
+    // Saving happens on a background thread so the game never freezes while the file is written.
+    private static final java.util.concurrent.ThreadPoolExecutor SAVER = new java.util.concurrent.ThreadPoolExecutor(
+            1, 1, 3, java.util.concurrent.TimeUnit.SECONDS, new java.util.concurrent.LinkedBlockingQueue<>(), r -> {
+                Thread t = new Thread(r, "PnL save");
+                t.setDaemon(false);
+                return t;
+            });
+    static { SAVER.allowCoreThreadTimeOut(true); }
+    private static final java.util.concurrent.atomic.AtomicReference<String> PENDING = new java.util.concurrent.atomic.AtomicReference<>();
+    private transient long dirtyAt = 0;
+
     public void save() {
-        try { Files.writeString(FILE, GSON.toJson(this)); }
-        catch (Exception e) { PnlTracker.LOG.warn("Couldn't save pnltracker.json", e); }
+        dirtyAt = 0;
+        String json;
+        try { json = GSON.toJson(this); }
+        catch (Exception e) { PnlTracker.LOG.warn("Couldn't save pnltracker.json", e); return; }
+        if (PENDING.getAndSet(json) != null) return;   // a write is already queued; it will pick up this newest copy
+        SAVER.execute(() -> {
+            String j = PENDING.getAndSet(null);
+            if (j == null) return;
+            try {
+                Path tmp = FILE.resolveSibling("pnltracker.json.tmp");
+                Files.writeString(tmp, j);
+                try { Files.move(tmp, FILE, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE); }
+                catch (Exception e) { Files.move(tmp, FILE, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
+            } catch (Exception e) { PnlTracker.LOG.warn("Couldn't save pnltracker.json", e); }
+        });
     }
+
+    /** For things that change every keystroke: save a moment after you stop. */
+    public void saveLater() { dirtyAt = System.currentTimeMillis(); }
+
+    /** Called every tick: does the delayed save once you've stopped typing/dragging for a bit. */
+    public void flushIfDue() { if (dirtyAt != 0 && System.currentTimeMillis() - dirtyAt > 700) save(); }
 }

@@ -584,9 +584,10 @@ public class PnlHud {
 
     /** Circle timer ring: the colored part shrinks clockwise from the top as time runs out. */
     static void ring(GuiGraphicsExtractor g, float cx, float cy, float rOut, float rIn, float progress, int on, int off) {
-        final int Q = 4;
+        final int Q = rOut > 24 ? 2 : 4;   // big rings don't need quarter pixels (and it's much less to draw every frame)
         float R = rOut * Q, r = rIn * Q, CX = cx * Q, CY = cy * Q;
         double limit = progress * Math.PI * 2;
+        int cxi = Math.round(CX);
         g.pose().pushMatrix();
         g.pose().scale(1f / Q, 1f / Q);
         for (int yy = (int) Math.floor(CY - R); yy < Math.ceil(CY + R); yy++) {
@@ -597,25 +598,28 @@ public class PnlHud {
             int[][] spans = hi < 0 ? new int[][]{{Math.round(CX - ho), Math.round(CX + ho)}}
                     : new int[][]{{Math.round(CX - ho), Math.round(CX - hi)}, {Math.round(CX + hi), Math.round(CX + ho)}};
             for (int[] sp : spans) {
-                int runStart = sp[0];
-                Boolean runOn = null;
-                for (int xx = sp[0]; xx <= sp[1]; xx++) {
-                    boolean isOn = false;
-                    if (xx < sp[1]) {
-                        double a = Math.atan2(xx + 0.5 - CX, -dy);
-                        if (a < 0) a += Math.PI * 2;
-                        isOn = a <= limit;
-                    }
-                    if (runOn == null) { runOn = isOn; runStart = xx; }
-                    else if (isOn != runOn || xx == sp[1]) {
-                        fillA(g, runStart, yy, xx, yy + 1, runOn ? on : off);
-                        runOn = isOn;
-                        runStart = xx;
-                    }
+                // split at the middle line so the angle only moves one way inside each piece,
+                // then there's at most one spot where it switches from colored to grey
+                int[][] parts = sp[0] < cxi && sp[1] > cxi ? new int[][]{{sp[0], cxi}, {cxi, sp[1]}} : new int[][]{sp};
+                for (int[] pt : parts) {
+                    int a0 = pt[0], a1 = pt[1];
+                    if (a1 <= a0) continue;
+                    boolean first = ringOn(a0, CX, dy, limit), last = ringOn(a1 - 1, CX, dy, limit);
+                    if (first == last) { fillA(g, a0, yy, a1, yy + 1, first ? on : off); continue; }
+                    int lo = a0, hiX = a1 - 1;          // ringOn(lo) == first, ringOn(hiX) != first
+                    while (hiX - lo > 1) { int mid = (lo + hiX) >>> 1; if (ringOn(mid, CX, dy, limit) == first) lo = mid; else hiX = mid; }
+                    fillA(g, a0, yy, hiX, yy + 1, first ? on : off);
+                    fillA(g, hiX, yy, a1, yy + 1, last ? on : off);
                 }
             }
         }
         g.pose().popMatrix();
+    }
+
+    private static boolean ringOn(int xx, float CX, float dy, double limit) {
+        double a = Math.atan2(xx + 0.5 - CX, -dy);
+        if (a < 0) a += Math.PI * 2;
+        return a <= limit;
     }
 
     /** Smooth filled circle, drawn at quarter-pixel resolution. */

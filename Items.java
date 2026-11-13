@@ -42,9 +42,19 @@ public final class Items {
     public static Entry get(String id) { all(); return byId.get(id); }
 
     /** Search by name or id, best matches first (name starts with the text). */
+    private static String lastQ;
+    private static List<Entry> lastResult;
+
     public static List<Entry> search(String q) {
         q = q.toLowerCase(Locale.ROOT).trim();
         if (q.isEmpty()) return all();
+        if (q.equals(lastQ) && lastResult != null && all != null) return lastResult;   // same text as last frame
+        lastQ = q;
+        lastResult = searchNow(q);
+        return lastResult;
+    }
+
+    private static List<Entry> searchNow(String q) {
         List<Entry> starts = new ArrayList<>(), contains = new ArrayList<>();
         for (Entry e : all()) {
             if (e.name.toLowerCase(Locale.ROOT).startsWith(q)) starts.add(e);

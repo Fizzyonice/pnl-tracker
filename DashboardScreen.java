@@ -78,6 +78,9 @@ public class DashboardScreen extends Screen {
         oy = Math.round((this.height - VH * scale) / 2f);
         mouseVX = (mouseX - ox) / scale;
         mouseVY = (mouseY - oy) / scale;
+        long nowNs = System.nanoTime();
+        frameDt = lastFrameNs == 0 ? 0.016f : Math.min(0.1f, (nowNs - lastFrameNs) / 1e9f);
+        lastFrameNs = nowNs;
         hits.clear();
         scrollAreas.clear();
         scrollKeys.clear();
@@ -160,7 +163,7 @@ public class DashboardScreen extends Screen {
         float nx = 124 + w("Welcome, ", true, 2.0f);
         glowBehind(g, nx - 26, 46, w(name, true, 2.0f) + 52, 50, PURPLE);
         txt(g, "Welcome, ", 124, 64, TEXT, 2.0f, true);
-        glowText(g, name, nx, 64, 0xFFB49BFF, 2.0f, 0x0E);
+        glowText(g, name, nx, 64, 0xFFB49BFF, 2.0f, 0x18);
         txt(g, "Have a great time on DonutSMP!", 125, 90, MUTED, 0.85f, false);
         PnlData.Session cur = d.activeSession();
         if (cur != null) {
@@ -203,7 +206,7 @@ public class DashboardScreen extends Screen {
             float w = spacedW(f[i], 0.62f);
             spaced(g, f[i], bx + i * 30 + (28 - w) / 2f, fy + 16.5f, on ? TEXT : MUTED, 0.62f);
             final int idx = i;
-            hits.add(new Hit(bx + i * 30, fy + 12, 28, 15, () -> { feedFilter = idx; scroll.put("feed", 0f); }));
+            hits.add(new Hit(bx + i * 30, fy + 12, 28, 15, () -> { feedFilter = idx; resetScroll("feed"); }));
         }
         List<PnlData.Tx> feed = new ArrayList<>();
         for (int i = all.size() - 1; i >= 0; i--) {
@@ -217,7 +220,8 @@ public class DashboardScreen extends Screen {
         int visible = (int) ((fy + fh - 8 - ly) / rowH);
         int first = scrollIndex("feed", feed.size(), visible, 20, ly, 300, visible * rowH);
         if (feed.isEmpty()) txt(g, "No payments in this range yet", 34, ly + 10, DIM, 0.8f, false);
-        for (int i = first; i < Math.min(feed.size(), first + visible); i++) {
+        beginRows(g, rowH);
+        for (int i = first; i < Math.min(feed.size(), first + visible + 1); i++) {
             PnlData.Tx tx = feed.get(i);
             float ry = ly + (i - first) * rowH;
             fill(g, 30, ry + rowH - 1, 310, ry + rowH, ROW_LINE);
@@ -228,6 +232,7 @@ public class DashboardScreen extends Screen {
             String amt = PnlData.signed(tx.a);
             txt(g, amt, 306 - w(amt, true, 0.82f), ry + 10, tx.a >= 0 ? GREEN : RED, 0.82f, true);
         }
+        endRows(g);
         scrollBar(g, 314, ly, visible * rowH, "feed", feed.size(), visible);
 
         // big chart
@@ -323,7 +328,8 @@ public class DashboardScreen extends Screen {
         int visible = (int) ((ty + th - 8 - ly) / rowH);
         int first = scrollIndex("wl", shown.size(), visible, 20, ly, VW - 40, visible * rowH);
         if (shown.isEmpty()) txt(g, list.isEmpty() ? "No bets yet" : "No player matches \"" + search + "\"", 74, ly + 10, DIM, 0.8f, false);
-        for (int i = first; i < Math.min(shown.size(), first + visible); i++) {
+        beginRows(g, rowH);
+        for (int i = first; i < Math.min(shown.size(), first + visible + 1); i++) {
             Map.Entry<String, double[]> e = shown.get(i);
             float ry = ly + (i - first) * rowH;
             if (in(20, ry, VW - 40, rowH)) fill(g, 22, ry, VW - 22, ry + rowH, 0x10FFFFFF);
@@ -338,8 +344,9 @@ public class DashboardScreen extends Screen {
             txt(g, amt, VW - 40 - w(amt, true, 0.88f), ry + 7, col, 0.88f, true);
             fill(g, 30, ry + rowH - 1, VW - 30, ry + rowH, ROW_LINE);
             final String who = e.getKey();
-            hits.add(new Hit(20, ry, VW - 40, rowH, () -> { selectedPlayer = who; scroll.put("pp", 0f); }));
+            hits.add(new Hit(20, ry, VW - 40, rowH, () -> { selectedPlayer = who; resetScroll("pp"); }));
         }
+        endRows(g);
         scrollBar(g, VW - 27, ly, visible * rowH, "wl", shown.size(), visible);
     }
 
@@ -400,7 +407,8 @@ public class DashboardScreen extends Screen {
         int visible = (int) ((gy + gh - 8 - ly) / rowH);
         int first = scrollIndex("pp", txs.size(), visible, px, ly, pw, visible * rowH);
         if (txs.isEmpty()) txt(g, "No payments with " + name, px + 14, ly + 4, DIM, 0.72f, false);
-        for (int i = first; i < Math.min(txs.size(), first + visible); i++) {
+        beginRows(g, rowH);
+        for (int i = first; i < Math.min(txs.size(), first + visible + 1); i++) {
             PnlData.Tx tx = txs.get(txs.size() - 1 - i);
             float ry = ly + (i - first) * rowH;
             txt(g, tx.a >= 0 ? "they bet / paid you" : "you paid them", px + 14, ry + 3, TEXT, 0.68f, true);
@@ -409,6 +417,7 @@ public class DashboardScreen extends Screen {
             txt(g, a, px + pw - 14 - w(a, true, 0.78f), ry + 7, tx.a > 0 ? RED : GREEN, 0.78f, true);
             fill(g, px + 10, ry + rowH - 1, px + pw - 10, ry + rowH, ROW_LINE);
         }
+        endRows(g);
         scrollBar(g, px + pw - 6, ly, visible * rowH, "pp", txs.size(), visible);
     }
 
@@ -438,17 +447,20 @@ public class DashboardScreen extends Screen {
         g.pose().pushMatrix();
         g.pose().scale(1f / Q, 1f / Q);
         for (int gx = X0; gx < X0 + W; gx += 16) g.fill(gx, zeroY, gx + 8, zeroY + 2, 0x55FFFFFF);
-        int prev = -1;
-        for (int px = 0; px <= W; px++) {
-            double pos = px / (double) W * segs;
+        // line in half-pixel steps, the soft fill under it in whole-pixel steps (the line covers the edge)
+        final int STEP = 2;
+        int prev = -1, k2 = 0;
+        for (int px = 0; px <= W; px += STEP, k2++) {
+            double pos = Math.min(W, px) / (double) W * segs;
             int i = Math.min(segs - 1, (int) pos);
             double f = pos - i;
             double val = v[i] + (v[i + 1] - v[i]) * f;
             int yy = Y0 + (int) Math.round((max - val) / (max - min) * H);
             boolean up = val >= 0;
-            g.fill(X0 + px, Math.min(yy, zeroY), X0 + px + 1, Math.max(yy, zeroY), up ? 0x223FE08A : 0x22FF5A72);
+            int sw = Math.min(STEP, W + 1 - px);
+            if (k2 % 2 == 0) g.fill(X0 + px, Math.min(yy, zeroY), X0 + Math.min(px + 2 * STEP, W + 1), Math.max(yy, zeroY), up ? 0x223FE08A : 0x22FF5A72);
             int top = prev < 0 ? yy : Math.min(prev, yy), bot = prev < 0 ? yy : Math.max(prev, yy);
-            g.fill(X0 + px, top - 3, X0 + px + 1, bot + 4, up ? GREEN : RED);
+            g.fill(X0 + px, top - 3, X0 + px + sw, bot + 4, up ? GREEN : RED);
             prev = yy;
         }
         g.pose().popMatrix();
@@ -521,7 +533,8 @@ public class DashboardScreen extends Screen {
         int visible = (int) ((ty + th - 8 - ly) / rowH);
         int first = scrollIndex("rb", list.size(), visible, 20, ly, VW - 40, visible * rowH);
         if (list.isEmpty()) txt(g, "No losses yet", 36, ly + 10, DIM, 0.8f, false);
-        for (int i = first; i < Math.min(list.size(), first + visible); i++) {
+        beginRows(g, rowH);
+        for (int i = first; i < Math.min(list.size(), first + visible + 1); i++) {
             Map.Entry<String, Double> e = list.get(i);
             float ry = ly + (i - first) * rowH;
             float rx = 30, rw = VW - 60, rh = rowH - 5;
@@ -538,6 +551,7 @@ public class DashboardScreen extends Screen {
             roundedF(g, bx, by, bw, 3, 1.5f, 0x22FFFFFF);
             gradientBar(g, bx, by, bw * frac, 3, bw);
         }
+        endRows(g);
         scrollBar(g, VW - 27, ly, visible * rowH, "rb", list.size(), visible);
     }
 
@@ -610,7 +624,8 @@ public class DashboardScreen extends Screen {
         int visible = (int) ((py + ph - 8 - ly) / rowH);
         int first = scrollIndex("sp", players.size(), visible, lx, ly, lw, visible * rowH);
         if (players.isEmpty()) txt(g, "No bets in this session yet", lx + 16, ly + 6, DIM, 0.78f, false);
-        for (int i = first; i < Math.min(players.size(), first + visible); i++) {
+        beginRows(g, rowH);
+        for (int i = first; i < Math.min(players.size(), first + visible + 1); i++) {
             Map.Entry<String, double[]> e = players.get(i);
             float ry = ly + (i - first) * rowH;
             double net = e.getValue()[0];
@@ -622,6 +637,7 @@ public class DashboardScreen extends Screen {
             txt(g, amt, lx + lw - 16 - w(amt, true, 0.84f), ry + 7, net > 0 ? GREEN : net < 0 ? RED : MUTED, 0.84f, true);
             fill(g, lx + 12, ry + rowH - 1, lx + lw - 12, ry + rowH, ROW_LINE);
         }
+        endRows(g);
         scrollBar(g, lx + lw - 6, ly, visible * rowH, "sp", players.size(), visible);
 
         // right: history
@@ -634,7 +650,8 @@ public class DashboardScreen extends Screen {
         int hv = (int) ((ry0 + rh - 8 - hy) / hRow);
         int hf = scrollIndex("sh", ss.size(), hv, rx, hy, rw, hv * hRow);
         if (ss.isEmpty()) txt(g, "Your sessions will show up here", rx + 16, hy + 6, DIM, 0.78f, false);
-        for (int k = hf; k < Math.min(ss.size(), hf + hv); k++) {
+        beginRows(g, hRow);
+        for (int k = hf; k < Math.min(ss.size(), hf + hv + 1); k++) {
             int idx = ss.size() - 1 - k; // newest first
             PnlData.Session x = ss.get(idx);
             long xe = x.end == 0 ? now : x.end;
@@ -650,8 +667,9 @@ public class DashboardScreen extends Screen {
             String ps = PnlData.signed(p).replace(".00", "");
             txt(g, ps, rx + rw - 20 - w(ps, true, 0.9f), yy + 8, p >= 0 ? GREEN : RED, 0.9f, true);
             final int pick = idx;
-            hits.add(new Hit(rx + 10, yy, rw - 20, hRow - 5, () -> { selectedSession = pick; scroll.put("sp", 0f); }));
+            hits.add(new Hit(rx + 10, yy, rw - 20, hRow - 5, () -> { selectedSession = pick; resetScroll("sp"); }));
         }
+        endRows(g);
         scrollBar(g, rx + rw - 6, hy, hv * hRow, "sh", ss.size(), hv);
     }
 
@@ -832,7 +850,8 @@ public class DashboardScreen extends Screen {
         int firstRow = scrollIndex("items", rowsAll, rowsVis, px, gy0, pw, rowsVis * (tile + gap));
         String hoverName = null;
         if (found.isEmpty()) txt(g, Items.all().isEmpty() ? "Items load when you're in a world" : "Nothing matches \"" + aucSearch + "\"", gx0, gy0 + 4, DIM, 0.75f, false);
-        for (int r = 0; r < rowsVis; r++) {
+        beginRows(g, tile + gap);
+        for (int r = 0; r < rowsVis + 1; r++) {
             for (int c = 0; c < cols; c++) {
                 int idx = (firstRow + r) * cols + c;
                 if (idx >= found.size()) break;
@@ -857,6 +876,7 @@ public class DashboardScreen extends Screen {
                 }));
             }
         }
+        endRows(g);
         scrollBar(g, px + pw - 7, gy0, rowsVis * (tile + gap), "items", rowsAll, rowsVis);
         String foot = hoverName != null ? hoverName : found.size() + " items";
         txt(g, foot, px + 14, py + ph - 16, hoverName != null ? TEXT : DIM, 0.7f, hoverName != null);
@@ -889,7 +909,7 @@ public class DashboardScreen extends Screen {
             case "sec" -> { try { d.aucSeconds = Math.max(1, Math.min(3600, Integer.parseInt(secBuf.trim()))); } catch (Exception ignored) {} }
             default -> {}
         }
-        d.save();
+        d.saveLater();
     }
 
     // ---------- color picker ----------
@@ -908,16 +928,22 @@ public class DashboardScreen extends Screen {
         if (!pickerSynced) { syncPicker(d.aucColor); pickerSynced = true; }
         float sqW = w - 22;
         pickX = x; pickY = y; pickW = sqW; pickH2 = h; hueX = x + sqW + 6; hueW = 16;
-        final int Q = 2, cells = 2;
+        // Cheap to draw: color columns (white -> full color), then rows of black that get darker going down.
+        // Black at alpha a over a color = that color at brightness (1 - a), which is exactly what the square shows.
+        final int Q = 4;
         g.pose().pushMatrix();
         g.pose().scale(1f / Q, 1f / Q);
         int X = Math.round(x * Q), Y = Math.round(y * Q), Wd = Math.round(sqW * Q), H = Math.round(h * Q);
-        for (int cy = 0; cy < H; cy += cells)
-            for (int cx = 0; cx < Wd; cx += cells)
-                g.fill(X + cx, Y + cy, X + Math.min(cx + cells, Wd), Y + Math.min(cy + cells, H), hsvToRgb(pickH, cx / (float) Wd, 1 - cy / (float) H));
+        final int colStep = 3, rowStep = 2;
+        for (int cx = 0; cx < Wd; cx += colStep)
+            g.fill(X + cx, Y, X + Math.min(cx + colStep, Wd), Y + H, hsvToRgb(pickH, (cx + colStep / 2f) / Wd, 1));
+        for (int cy = 0; cy < H; cy += rowStep) {
+            int a = Math.round(255 * Math.min(1f, (cy + rowStep / 2f) / H));
+            if (a > 0) g.fill(X, Y + cy, X + Wd, Y + Math.min(cy + rowStep, H), a << 24);
+        }
         int HX = Math.round(hueX * Q), HW = Math.round(hueW * Q);
-        for (int cy = 0; cy < H; cy += cells)
-            g.fill(HX, Y + cy, HX + HW, Y + Math.min(cy + cells, H), hsvToRgb(cy / (float) H, 1, 1));
+        for (int cy = 0; cy < H; cy += rowStep)
+            g.fill(HX, Y + cy, HX + HW, Y + Math.min(cy + rowStep, H), hsvToRgb((cy + rowStep / 2f) / H, 1, 1));
         g.pose().popMatrix();
         border(g, x, y, sqW, h, EDGE);
         border(g, hueX, y, hueW, h, EDGE);
@@ -1129,17 +1155,20 @@ public class DashboardScreen extends Screen {
         g.pose().pushMatrix();
         g.pose().scale(1f / Q, 1f / Q);
         if (zeroBased) for (int gx = X0; gx < X0 + W; gx += 16) g.fill(gx, zeroY, gx + 8, zeroY + 2, 0x40FFFFFF);
-        int prev = -1, lastY = 0;
-        for (int px = 0; px <= W; px++) {
-            double pos = px / (double) W * segs;
+        // steps of 2 (half a pixel): looks the same, but half as much to draw every frame
+        final int STEP = zeroBased ? 2 : 4;   // small card charts: one column per pixel is plenty
+        int prev = -1, lastY = 0, k2 = 0;
+        for (int px = 0; px <= W; px += STEP, k2++) {
+            double pos = Math.min(W, px) / (double) W * segs;
             int i = Math.min(segs - 1, (int) pos);
             double f = pos - i;
             double a = v[i], b = v[i + 1];
             double val = a + (b - a) * (f * f * (3 - 2 * f)); // smooth step between points
             int yy = Y0 + (int) Math.round((max - val) / (max - min) * H);
-            g.fill(X0 + px, Math.min(yy, zeroY), X0 + px + 1, Math.max(yy, zeroY), fillCol);
+            int sw = Math.min(STEP, W + 1 - px);
+            if (k2 % 2 == 0) g.fill(X0 + px, Math.min(yy, zeroY), X0 + Math.min(px + 2 * STEP, W + 1), Math.max(yy, zeroY), fillCol);
             int top = prev < 0 ? yy : Math.min(prev, yy), bot = prev < 0 ? yy : Math.max(prev, yy);
-            g.fill(X0 + px, top - t / 2, X0 + px + 1, bot + t / 2 + 1, col);
+            g.fill(X0 + px, top - t / 2, X0 + px + sw, bot + t / 2 + 1, col);
             prev = yy;
             lastY = yy;
         }
@@ -1251,19 +1280,20 @@ public class DashboardScreen extends Screen {
 
     /** Soft colored light behind a word. */
     private void glowBehind(GuiGraphicsExtractor g, float x, float y, float w, float h, int col) {
-        for (int i = 0; i < 28; i++) {
-            float k = i / 28f;
+        // 10 soft layers drawn at normal resolution (it's a blur, so it doesn't need the 4x detail)
+        for (int i = 0; i < 10; i++) {
+            float k = i / 10f;
             float ix = w * 0.5f * k, iy = h * 0.5f * k;
-            roundedF(g, x + ix, y + iy, w - 2 * ix, h - 2 * iy, (h - 2 * iy) / 2f, (2 << 24) | (col & 0xFFFFFF));
+            roundedQ(g, x + ix, y + iy, w - 2 * ix, h - 2 * iy, (h - 2 * iy) / 2f, (5 << 24) | (col & 0xFFFFFF), 1);
         }
     }
 
     /** Text with a soft glow around it. */
     private void glowText(GuiGraphicsExtractor g, String s, float x, float y, int col, float sc, int glowAlpha) {
         int gc = (glowAlpha << 24) | (col & 0xFFFFFF);
-        for (int i = 0; i < 12; i++) {
-            double ang = Math.PI * 2 * i / 12;
-            for (float r : new float[]{0.7f, 1.4f, 2.2f})
+        for (int i = 0; i < 8; i++) {
+            double ang = Math.PI * 2 * i / 8;
+            for (float r : new float[]{0.9f, 1.9f})
                 txt(g, s, x + (float) Math.cos(ang) * r, y + (float) Math.sin(ang) * r, gc, sc, true);
         }
         txt(g, s, x, y, col, sc, true);
@@ -1332,8 +1362,8 @@ public class DashboardScreen extends Screen {
             if ("qty".equals(field) && Character.isDigit(cp) && qtyBuf.length() < 7) qtyBuf = (qtyBuf.equals("0") ? "" : qtyBuf) + add;
             if ("sec".equals(field) && Character.isDigit(cp) && secBuf.length() < 4) secBuf = (secBuf.equals("0") ? "" : secBuf) + add;
             if (field != null) commitField();
-            if (searchFocused && search.length() < 24) { search += add; scroll.put("wl", 0f); }
-            if (aucFocused && aucSearch.length() < 32) { aucSearch += add; scroll.put("items", 0f); }
+            if (searchFocused && search.length() < 24) { search += add; resetScroll("wl"); }
+            if (aucFocused && aucSearch.length() < 32) { aucSearch += add; resetScroll("items"); }
         }
         return true;
     }
@@ -1361,8 +1391,8 @@ public class DashboardScreen extends Screen {
             if (key == 259) {                                                          // Backspace
                 if (searchFocused && !search.isEmpty()) search = search.substring(0, search.length() - 1);
                 if (aucFocused && !aucSearch.isEmpty()) aucSearch = aucSearch.substring(0, aucSearch.length() - 1);
-                scroll.put("wl", 0f);
-                scroll.put("items", 0f);
+                resetScroll("wl");
+                resetScroll("items");
                 return true;
             }
             if (key == 257 || key == 335) { searchFocused = false; aucFocused = false; return true; } // Enter
@@ -1377,18 +1407,93 @@ public class DashboardScreen extends Screen {
     // =====================================================================
     // Scrolling
     // =====================================================================
+    // Smooth scrolling: `scroll` is where the list is heading, `scrollAnim` is where it is right now (glides toward it).
+    private final Map<String, Float> scrollAnim = new HashMap<>();
+    private long lastFrameNs = 0;
+    private float frameDt = 0.016f;
+    private float rowsFrac;            // how far between two rows the list is (0..1), for the list being drawn
+    private float[] rowsArea;
+    private float rowsShift;
+    private int rowsHitMark;
+    private boolean rowsClipped;
+
+    private void resetScroll(String key) { scroll.put(key, 0f); scrollAnim.put(key, 0f); }
+
     private int scrollIndex(String key, int count, int visible, float x, float y, float w, float h) {
         scrollAreas.add(new int[]{Math.round(x), Math.round(y), Math.round(w), Math.round(h)});
         scrollKeys.add(key);
         int maxFirst = Math.max(0, count - visible);
         float s = Math.min(scroll.getOrDefault(key, 0f), maxFirst);
         scroll.put(key, s);
-        return Math.round(s);
+        float a = scrollAnim.getOrDefault(key, s);
+        a += (s - a) * (1f - (float) Math.exp(-frameDt * 18f));
+        if (Math.abs(s - a) < 0.003f) a = s;
+        a = Math.max(0, Math.min(a, maxFirst));
+        scrollAnim.put(key, a);
+        int first = (int) Math.floor(a);
+        rowsFrac = a - first;
+        rowsArea = new float[]{x, y, w, h};
+        return first;
+    }
+
+    /** Call right before drawing a list's rows: slides them up by the in-between amount and cuts them off at the list's edges. */
+    private void beginRows(GuiGraphicsExtractor g, float rowH) {
+        rowsShift = rowsFrac * rowH;
+        rowsHitMark = hits.size();
+        rowsClipped = clipOn(g, rowsArea[0], rowsArea[1], rowsArea[2], rowsArea[3]);
+        g.pose().pushMatrix();
+        g.pose().translate(0, -rowsShift);
+        mouseVY += rowsShift;
+    }
+
+    private void endRows(GuiGraphicsExtractor g) {
+        g.pose().popMatrix();
+        mouseVY -= rowsShift;
+        if (rowsClipped) clipOff(g);
+        // move the click areas to where the rows really are, and only inside the list
+        float top = rowsArea[1], bottom = rowsArea[1] + rowsArea[3];
+        for (int i = hits.size() - 1; i >= rowsHitMark; i--) {
+            Hit h = hits.get(i);
+            float y1 = Math.max(top, h.y() - rowsShift), y2 = Math.min(bottom, h.y() + h.h() - rowsShift);
+            if (y2 <= y1) hits.remove(i);
+            else hits.set(i, new Hit(h.x(), y1, h.w(), y2 - y1, h.action()));
+        }
+    }
+
+    private static boolean scissorLookup;
+
+    private static void findScissor() {
+        if (scissorLookup) return;
+        scissorLookup = true;
+        for (java.lang.reflect.Method m : GuiGraphicsExtractor.class.getMethods()) {
+            String n = m.getName().toLowerCase(Locale.ROOT);
+            if (!n.contains("scissor")) continue;
+            Class<?>[] p = m.getParameterTypes();
+            if (n.contains("enable") && p.length == 4 && p[0] == int.class) scissorOn = m;
+            if (n.contains("disable") && p.length == 0) scissorOff = m;
+        }
+    }
+
+    /** Only draw inside this box (canvas coordinates). Returns false if the game can't do that. */
+    private boolean clipOn(GuiGraphicsExtractor g, float x, float y, float w, float h) {
+        findScissor();
+        if (scissorOn == null || scissorOff == null) return false;
+        int x1 = (int) Math.floor(ox + x * scale), y1 = (int) Math.floor(oy + y * scale);
+        int x2 = (int) Math.ceil(ox + (x + w) * scale), y2 = (int) Math.ceil(oy + (y + h) * scale);
+        g.pose().pushMatrix();
+        g.pose().identity();
+        try { scissorOn.invoke(g, x1, y1, x2, y2); return true; }
+        catch (Throwable t) { scissorOn = null; return false; }
+        finally { g.pose().popMatrix(); }
+    }
+
+    private void clipOff(GuiGraphicsExtractor g) {
+        try { scissorOff.invoke(g); } catch (Throwable ignored) {}
     }
 
     private void scrollBar(GuiGraphicsExtractor g, float x, float y, float h, String key, int count, int visible) {
         if (count <= visible || visible <= 0) return;
-        float s = scroll.getOrDefault(key, 0f);
+        float s = scrollAnim.getOrDefault(key, scroll.getOrDefault(key, 0f));
         float bh = Math.max(14, h * visible / count);
         float by = y + (h - bh) * s / Math.max(1, count - visible);
         roundedF(g, x, y, 2.5f, h, 1.2f, 0x18FFFFFF);
@@ -1412,22 +1517,32 @@ public class DashboardScreen extends Screen {
     }
 
     /** Smooth rounded rectangle (radius r), drawn at 4x resolution. */
-    private static void roundedF(GuiGraphicsExtractor g, float x, float y, float w, float h, float r, int col) {
+    private static void roundedF(GuiGraphicsExtractor g, float x, float y, float w, float h, float r, int col) { roundedQ(g, x, y, w, h, r, col, 4); }
+
+    private static void roundedQ(GuiGraphicsExtractor g, float x, float y, float w, float h, float r, int col, int Q) {
         if ((col >>> 24) == 0) return;
-        final int Q = 4;
         int X = Math.round(x * Q), Y = Math.round(y * Q), Wd = Math.round(w * Q), H = Math.round(h * Q);
         float R = Math.min(r * Q, Math.min(Wd, H) / 2f);
         g.pose().pushMatrix();
         g.pose().scale(1f / Q, 1f / Q);
         int rr = (int) Math.ceil(R);
         g.fill(X, Y + rr, X + Wd, Y + H - rr, col);
-        for (int row = 0; row < rr; row++) {
-            float dy = R - (row + 0.5f);
-            int inset = (int) Math.ceil(R - Math.sqrt(Math.max(0f, R * R - dy * dy)));
-            g.fill(X + inset, Y + row, X + Wd - inset, Y + row + 1, col);
-            g.fill(X + inset, Y + H - row - 1, X + Wd - inset, Y + H - row, col);
+        // corner rows; rows with the same inset are drawn as one piece (same picture, far fewer pieces)
+        int row = 0;
+        while (row < rr) {
+            int inset = cornerInset(R, row);
+            int end = row + 1;
+            while (end < rr && cornerInset(R, end) == inset) end++;
+            g.fill(X + inset, Y + row, X + Wd - inset, Y + end, col);
+            g.fill(X + inset, Y + H - end, X + Wd - inset, Y + H - row, col);
+            row = end;
         }
         g.pose().popMatrix();
+    }
+
+    private static int cornerInset(float R, int row) {
+        float dy = R - (row + 0.5f);
+        return (int) Math.ceil(R - Math.sqrt(Math.max(0f, R * R - dy * dy)));
     }
 
     private static void rounded(GuiGraphicsExtractor g, float x, float y, float w, float h, float r, int col) { roundedF(g, x, y, w, h, r, col); }

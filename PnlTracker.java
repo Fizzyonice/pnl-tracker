@@ -51,6 +51,7 @@ public class PnlTracker implements ClientModInitializer {
             else if (openDashboard && !(mc.screen instanceof net.minecraft.client.gui.screens.ChatScreen)) openDashboard = false;
 
             Auction.tick(DATA);
+            DATA.flushIfDue();
 
             // playtime: count time while you're in a world
             long now = System.currentTimeMillis();
